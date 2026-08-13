@@ -1,4 +1,4 @@
-# AI Code Modernization Platform
+# LegacyLens — Agentic Software Modernization
 
 > **Agentic legacy-code migration with program analysis, RAG, dependency intelligence, and migration QA.**
 
