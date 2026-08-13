@@ -7,25 +7,49 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Repository quality gate
-        run: python portfolio_quality/quality_gate.py .
+      - name: Install root development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
 
-      - name: Python syntax check
-        run: python -m compileall -q agent_service evaluation portfolio_quality tests
+      - name: Install agent service dependencies
+        run: |
+          pip install -r agent_service/requirements.txt
 
-      - name: Install test dependency
-        run: python -m pip install --upgrade pytest
+      - name: Lint
+        run: ruff check .
 
-      - name: Unit tests
+      - name: Tests
+        env:
+          PYTHONPATH: .
         run: python -m pytest -q
 
-      - name: Multi-language benchmark suite
-        run: python evaluation/run_benchmarks.py
+      - name: Quality gate
+        run: python portfolio_quality/quality_gate.py .
+
+      - name: Evaluation suite
+        env:
+          PYTHONPATH: .
+        run: python evaluation/evaluate_migration.py
+
+      - name: Compile check
+        run: python -m compileall -q agent_service streamlit_ui evaluation portfolio_quality tests
+
+      - name: Validate Docker Compose
+        run: docker compose config
+
+      - name: Build agent image
+        run: docker build -t ai-code-modernization-api:ci agent_service
+
+      - name: Build UI image
+        run: docker build -t ai-code-modernization-ui:ci streamlit_ui
