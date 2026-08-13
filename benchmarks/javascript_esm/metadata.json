@@ -1,0 +1,9 @@
+{
+  "name": "javascript-commonjs-to-esm",
+  "source_language": "javascript",
+  "target_language": "javascript",
+  "transformation": "CommonJS module -> ESM module",
+  "syntax_command": "node --check calculator.mjs",
+  "test_command": "node --test tests/calculator.test.mjs",
+  "test_cwd": "target"
+}

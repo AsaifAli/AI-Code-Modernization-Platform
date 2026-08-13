@@ -1,0 +1,15 @@
+class ValidationMessages:
+
+    MIGRATION_NAME_REQUIRED = "migration_name must be provided or set in migration_name_ctx"
+    SOURCE_PATH_REQUIRED = "source_path must be provided or set in source_path_ctx"
+    TARGET_LANGUAGE_REQUIRED = "target_language must be provided or set in context"
+    TARGET_PATH_REQUIRED = "target_path must be provided or set in target_path_ctx"
+    INVALID_SCANNER_OUTPUT_DATA = "No valid data in source_scanner_output.json"
+    MIGRATION_DIRECTORY_NOT_FOUND = "Migration directory does NOT exist!"
+    MIGRATION_NAME_AND_PATH_REQUIRED = "migration_name and source_path required"
+    INVALID_LLM_RESPONSE_TEXT = "Invalid response text"
+    LLM_JSON_PARSE_FAILED = "Could not parse JSON after all strategies. LLM returned text instead of JSON."
+    AST_ROOT_IS_NONE = "SemanticAnalyzer: ast_root is None — AST conversion failed"
+    DB_NOT_CONFIGURED_FOR_SESSION = "Database not configured. Please set DB_USER, DB_PASSWORD, and DB_NAME environment variables."
+    DB_NOT_CONFIGURED_FOR_INIT = "Database not configured. Cannot initialize database."
+    DB_CREDENTIALS_NOT_CONFIGURED = "Database credentials not fully configured. Please set DB_USER, DB_PASSWORD, and DB_NAME (or Prompt_DB_NAME) environment variables."

@@ -1,0 +1,177 @@
+{
+  "suite": "ACMP portfolio validation suite",
+  "generated_at": "2026-08-12T15:40:56Z",
+  "cases": [
+    {
+      "name": "python-calculator-baseline",
+      "source_language": "python",
+      "target_language": "python",
+      "transformation": "CI smoke benchmark: reference-preserving Python migration",
+      "source": {
+        "files": 1,
+        "lines": 7
+      },
+      "target": {
+        "files": 3,
+        "lines": 25
+      },
+      "validation": {
+        "tests": {
+          "command": "python -m unittest discover -s tests -v",
+          "passed": true,
+          "return_code": 0,
+          "duration_ms": 644.51,
+          "output_tail": "test_add (test_calculator.CalculatorTests.test_add) ... ok\ntest_subtract (test_calculator.CalculatorTests.test_subtract) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK"
+        }
+      },
+      "passed": true
+    },
+    {
+      "name": "go-modernization",
+      "source_language": "go",
+      "target_language": "go",
+      "transformation": "legacy helper package -> explicit exported API",
+      "source": {
+        "files": 2,
+        "lines": 8
+      },
+      "target": {
+        "files": 3,
+        "lines": 18
+      },
+      "validation": {
+        "tests": {
+          "command": "go test ./...",
+          "passed": true,
+          "return_code": 0,
+          "duration_ms": 165.23,
+          "output_tail": "ok  \texample.com/moderncalc\t0.002s"
+        }
+      },
+      "passed": true
+    },
+    {
+      "name": "java-modernization",
+      "source_language": "java",
+      "target_language": "java",
+      "transformation": "mutable helper -> immutable record + static service API",
+      "source": {
+        "files": 1,
+        "lines": 5
+      },
+      "target": {
+        "files": 2,
+        "lines": 17
+      },
+      "validation": {
+        "build": {
+          "command": "javac -d build src/Calculator.java tests/CalculatorTest.java",
+          "passed": true,
+          "return_code": 0,
+          "duration_ms": 465.72,
+          "output_tail": ""
+        },
+        "tests": {
+          "command": "java -cp build CalculatorTest",
+          "passed": true,
+          "return_code": 0,
+          "duration_ms": 30.34,
+          "output_tail": "2 tests passed"
+        }
+      },
+      "passed": true
+    },
+    {
+      "name": "javascript-commonjs-to-esm",
+      "source_language": "javascript",
+      "target_language": "javascript",
+      "transformation": "CommonJS module -> ESM module",
+      "source": {
+        "files": 1,
+        "lines": 5
+      },
+      "target": {
+        "files": 2,
+        "lines": 10
+      },
+      "validation": {
+        "syntax": {
+          "command": "node --check calculator.mjs",
+          "passed": true,
+          "return_code": 0,
+          "duration_ms": 20.2,
+          "output_tail": ""
+        },
+        "tests": {
+          "command": "node --test tests/calculator.test.mjs",
+          "passed": true,
+          "return_code": 0,
+          "duration_ms": 70.04,
+          "output_tail": "TAP version 13\n# Subtest: add\nok 1 - add\n  ---\n  duration_ms: 0.566499\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 43.215067"
+        }
+      },
+      "passed": true
+    },
+    {
+      "name": "php-modernization",
+      "source_language": "php",
+      "target_language": "php",
+      "transformation": "procedural helper -> class-based API",
+      "source": {
+        "files": 1,
+        "lines": 4
+      },
+      "target": {
+        "files": 2,
+        "lines": 12
+      },
+      "validation": {
+        "syntax": {
+          "command": "php -l Calculator.php",
+          "passed": true,
+          "return_code": 0,
+          "duration_ms": 10.85,
+          "output_tail": "No syntax errors detected in Calculator.php"
+        },
+        "tests": {
+          "command": "php tests/test_calculator.php",
+          "passed": true,
+          "return_code": 0,
+          "duration_ms": 9.54,
+          "output_tail": "1 test passed"
+        }
+      },
+      "passed": true
+    },
+    {
+      "name": "python-refactor",
+      "source_language": "python",
+      "target_language": "python",
+      "transformation": "legacy utility -> typed service-style implementation",
+      "source": {
+        "files": 1,
+        "lines": 6
+      },
+      "target": {
+        "files": 2,
+        "lines": 22
+      },
+      "validation": {
+        "tests": {
+          "command": "python -m unittest discover -s tests -v",
+          "passed": true,
+          "return_code": 0,
+          "duration_ms": 684.75,
+          "output_tail": "test_add (test_calculator.CalculatorTests.test_add) ... ok\ntest_subtract (test_calculator.CalculatorTests.test_subtract) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK"
+        }
+      },
+      "passed": true
+    }
+  ],
+  "summary": {
+    "total": 6,
+    "passed": 6,
+    "failed": 0
+  },
+  "scope_note": "Targets are hand-authored reference implementations used to validate the evaluation contract; results are not claimed as LLM semantic-equivalence accuracy."
+}

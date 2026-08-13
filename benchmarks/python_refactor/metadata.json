@@ -1,0 +1,8 @@
+{
+  "name": "python-refactor",
+  "source_language": "python",
+  "target_language": "python",
+  "transformation": "legacy utility -> typed service-style implementation",
+  "test_command": "python -m unittest discover -s tests -v",
+  "test_cwd": "target"
+}

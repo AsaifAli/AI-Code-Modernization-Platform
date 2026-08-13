@@ -1,0 +1,11 @@
+{
+  "name": "python-calculator-baseline",
+  "source_language": "python",
+  "target_language": "python",
+  "purpose": "CI smoke benchmark for deterministic structural and behavioral evaluation",
+  "test_command": "python -m unittest discover -s tests -v",
+  "known_limitations": [
+    "This fixture is intentionally small and does not represent real migration complexity."
+  ],
+  "transformation": "CI smoke benchmark: reference-preserving Python migration"
+}

@@ -1,0 +1,146 @@
+services:
+  litellm:
+    image: litellm/litellm:1.94.0
+    container_name: code-modernization-litellm
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENROUTER_LITELLM_MODEL: ${OPENROUTER_LITELLM_MODEL:-openrouter/free}
+      GEMINI_LITELLM_MODEL: ${GEMINI_LITELLM_MODEL:-gemini/gemini-flash-lite-latest}
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: code-modernization-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-ai}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-me}
+      POSTGRES_DB: ${DB_NAME:-ai_code_conversion}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ai} -d ${DB_NAME:-ai_code_conversion}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  vllm:
+    profiles: ["gpu"]
+    image: vllm/vllm-openai:latest
+    container_name: code-modernization-vllm
+    ipc: host
+    ports:
+      - "${VLLM_PORT_HOST:-8000}:8000"
+    environment:
+      HF_TOKEN: ${HUGGINGFACE_API_KEY:-}
+      VLLM_LOGGING_LEVEL: ${VLLM_LOGGING_LEVEL:-INFO}
+    command:
+      - --model
+      - ${VLLM_CHAT_MODEL_ID:-Qwen/Qwen2.5-7B-Instruct}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --api-key
+      - ${VLLM_API_KEY:-local}
+      - --gpu-memory-utilization
+      - "${VLLM_GPU_MEMORY_UTILIZATION:-0.90}"
+      - --max-model-len
+      - "${VLLM_MAX_MODEL_LEN:-8192}"
+    volumes:
+      - vllm_hf_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  agent_service:
+    build:
+      context: ./agent_service
+      dockerfile: Dockerfile
+    container_name: agent_service
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SERVICE_HOST: 0.0.0.0
+      ALLOWED_ORIGINS: http://localhost:${STREAMLIT_UI_PORT:-8722}
+      MODEL_TYPE: ${MODEL_TYPE:-OpenAI}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-http://litellm:4000/v1}
+      OPENAI_API_KEY: ${LITELLM_MASTER_KEY:-}
+      OPENAI_MODEL_ID: ${OPENAI_MODEL_ID:-portfolio-free}
+      VLLM_BASE_URL: http://vllm:8000/v1
+      VLLM_CHAT_MODEL_ID: ${VLLM_CHAT_MODEL_ID:-Qwen/Qwen2.5-7B-Instruct}
+      VLLM_API_KEY: ${VLLM_API_KEY:-local}
+      EMBED_MODEL_TYPE: ${EMBED_MODEL_TYPE:-fastembed}
+      STACK_ANALYZER_ENABLED: ${STACK_ANALYZER_ENABLED:-true}
+      STACK_ANALYZER_VERSION: ${STACK_ANALYZER_VERSION:-1.27.6}
+    ports:
+      - "${AGENT_SERVICE_PORT_HOST:-8015}:8015"
+    volumes:
+      - agent_temp:/app/Temp
+      - shared_uploads:/shared
+    depends_on:
+      litellm:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8015/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  streamlit_ui:
+    build:
+      context: ./streamlit_ui
+      dockerfile: Dockerfile
+    container_name: streamlit_ui
+    environment:
+      AGENT_SERVICE_URL: http://agent_service:8015
+    ports:
+      - "${STREAMLIT_UI_PORT:-8722}:8501"
+    volumes:
+      - shared_uploads:/shared
+    depends_on:
+      agent_service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  postgres_data:
+  vllm_hf_cache:
+  agent_temp:
+  shared_uploads:

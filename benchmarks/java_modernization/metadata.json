@@ -1,0 +1,9 @@
+{
+  "name": "java-modernization",
+  "source_language": "java",
+  "target_language": "java",
+  "transformation": "mutable helper -> immutable record + static service API",
+  "build_command": "javac -d build src/Calculator.java tests/CalculatorTest.java",
+  "test_command": "java -cp build CalculatorTest",
+  "test_cwd": "target"
+}

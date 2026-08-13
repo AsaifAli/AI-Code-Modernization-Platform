@@ -1,0 +1,37 @@
+{
+  "source": {
+    "files": 1,
+    "lines": 7,
+    "symbols": 3,
+    "python_files": 1,
+    "python_syntax_valid": 1
+  },
+  "target": {
+    "files": 2,
+    "lines": 7,
+    "symbols": 3,
+    "python_files": 2,
+    "python_syntax_valid": 2
+  },
+  "metrics": {
+    "relative_file_coverage_percent": 100.0,
+    "python_symbol_ratio_percent": 100.0,
+    "python_syntax_validity_percent": 100.0,
+    "line_delta": 0,
+    "file_delta": 1,
+    "symbol_delta": 0
+  },
+  "behavioral_validation": {
+    "requested": true,
+    "passed": true,
+    "return_code": 0,
+    "duration_ms": 861.9,
+    "command": "python -m unittest discover -s tests -v",
+    "output_tail": "test_add (test_calculator.CalculatorTests.test_add) ... ok\ntest_subtract (test_calculator.CalculatorTests.test_subtract) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK"
+  },
+  "interpretation": [
+    "Structural metrics are regression signals, not semantic-equivalence proof.",
+    "Behavioral validation is only meaningful when a benchmark test suite is supplied.",
+    "Production benchmark evidence should also capture target-language build/lint results and LLM telemetry."
+  ]
+}

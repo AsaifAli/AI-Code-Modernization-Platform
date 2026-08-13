@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Environments
+.venv/
+venv/
+agent_venv/
+myenv/
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Runtime / generated artifacts
+Temp/
+tmp/
+ast_output/
+cst_output/
+logs/
+artifacts/
+migrated_code_repo/
+lancedb_data/
+shared_uploads/
+agent_service/Temp/
+agent_service/poc/
+agent_service/application/env/
+agent_service/application/POC/
+
+# Local databases / state
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+
+# Archives / backups
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+*.bz2
+*.xz
+*_backup.py
+backup/
+
+# Local project fixtures from development
+react-test-project-migration/
+php-project-migration/
+php-project-migration-two/
+application/env/
+
+# Secrets / credentials
+*.pem
+*.key
+*.crt
+secrets/
+
+# Tooling
+.ruff_cache/
+
+# Local benchmark outputs
+benchmarks/**/.pytest_cache/
+
+# Benchmark build artifacts
+benchmarks/**/target/build/
+benchmarks/**/__pycache__/

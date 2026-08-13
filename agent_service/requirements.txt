@@ -1,0 +1,34 @@
+fastapi
+uvicorn
+python-multipart
+httpx
+python-dotenv
+pydantic
+pydantic-settings
+# agno framework + all model/tool backends it needs at import time
+
+agno
+openai
+google-genai
+ollama
+# agents, knowledge base, embeddings, vector DB
+
+langchain-text-splitters
+lancedb
+# utilities
+
+plantuml
+fpdf2
+requests
+sqlalchemy
+psycopg2
+tiktoken
+networkx
+leidenalg
+python-igraph
+scikit-learn
+numpy
+tantivy
+pylance
+huggingface_hub
+fastembed

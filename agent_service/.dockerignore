@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+dev_poc/
+.git/
+.env
+*.zip
+*.rar
+*.7z
+Temp/
+tmp/
+*.db

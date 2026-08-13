@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: ai-code-modernization-api
+    runtime: docker
+    plan: free
+    region: singapore
+    autoDeployTrigger: checksPass
+    healthCheckPath: /healthz
+    dockerCommand: 'python main.py'
+    envVars:
+      - key: SERVICE_HOST
+        value: "0.0.0.0"
+      - key: AGENT_SERVICE_PORT
+        value: "10000"
+      - key: MODEL_TYPE
+        value: "OpenAI"
+      - key: OPENAI_BASE_URL
+        value: "https://openrouter.ai/api/v1"
+      - key: OPENAI_MODEL_ID
+        value: "openai/gpt-4o-mini"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: "https://ai-code-modernization-ui.onrender.com"
+      - key: STACK_ANALYZER_ENABLED
+        value: "true"
+      - key: STACK_ANALYZER_VERSION
+        value: "1.27.6"
+      - key: EMBED_MODEL_TYPE
+        value: "fastembed"
+      - key: OTEL_ENABLED
+        value: "false"
+      - key: PUBLIC_API_URL
+        value: "https://ai-code-modernization-api.onrender.com"
+
+  - type: web
+    name: ai-code-modernization-ui
+    runtime: docker
+    plan: free
+    region: singapore
+    autoDeployTrigger: checksPass
+    healthCheckPath: /_stcore/health
+    dockerCommand: 'streamlit run app.py --server.port $PORT --server.address=0.0.0.0 --server.headless=true'
+    envVars:
+      - key: AGENT_SERVICE_URL
+        fromService:
+          type: web
+          name: ai-code-modernization-api
+          envVarKey: PUBLIC_API_URL

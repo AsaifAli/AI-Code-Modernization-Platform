@@ -1,0 +1,8 @@
+{
+  "name": "go-modernization",
+  "source_language": "go",
+  "target_language": "go",
+  "transformation": "legacy helper package -> explicit exported API",
+  "test_command": "go test ./...",
+  "test_cwd": "target"
+}

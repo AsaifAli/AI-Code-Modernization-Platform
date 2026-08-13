@@ -1,0 +1,9 @@
+{
+  "name": "php-modernization",
+  "source_language": "php",
+  "target_language": "php",
+  "transformation": "procedural helper -> class-based API",
+  "syntax_command": "php -l Calculator.php",
+  "test_command": "php tests/test_calculator.php",
+  "test_cwd": "target"
+}
