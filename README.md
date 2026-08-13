@@ -7,6 +7,15 @@ A portfolio-grade AI engineering project that turns a legacy repository into a s
 The system deliberately combines **deterministic software analysis** with **probabilistic LLM reasoning** rather than sending an entire repository to a model in one prompt.
 
 ---
+## 🚀 Deployment
+
+**Status:** Deployed
+
+The application is deployed as a public portfolio demonstration.
+
+**Architecture:** GitHub Actions → Docker → Cloud deployment
+
+> Live demo access is provided selectively for evaluation/interviews.
 
 ## Why this project is interesting
 
