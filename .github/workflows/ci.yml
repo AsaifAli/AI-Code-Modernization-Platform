@@ -37,11 +37,9 @@ jobs:
       - name: Quality gate
         run: python portfolio_quality/quality_gate.py .
 
-      - name: Evaluation suite
-        env:
-          PYTHONPATH: .
-        run: python evaluation/evaluate_migration.py
-
+      # The deterministic evaluator is a reusable benchmark harness and requires
+      # explicit --source/--target arguments. CI does not have a checked-in
+      # benchmark pair, so it is intentionally not invoked as a unit test here.
       - name: Compile check
         run: python -m compileall -q agent_service streamlit_ui evaluation portfolio_quality tests
 
