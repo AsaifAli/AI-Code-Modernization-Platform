@@ -67,18 +67,15 @@ def run_post_migration_pipeline(
             migration_dir / ".migration" / "dependency_topology.json",
         )
 
-    # Semantic verification runs before the release gate so a red build still
-    # produces useful migration evidence. It compares public source/target
-    # contracts, records test evidence, and executes existing target tests when
-    # a supported test runner is present. It never claims full equivalence.
-    publish_progress("analysis", 89, "Verifying migrated contracts and behavioral evidence")
+    # The repair loop owns semantic verification. Start with an empty report so
+    # the first loop cycle observes the current target state, and any repair
+    # decision is based on that first evidence. Every subsequent cycle then
+    # revalidates semantics after the repair edits.
     try:
         source_root = Path(source_path_ctx.get("")) if source_path_ctx.get("") else None
     except Exception:
         source_root = None
-    semantic_verification = verify_migration_semantics(
-        source_root, migrated_root, migration_name=migration_name, persist=persist
-    )
+    semantic_verification: Dict[str, Any] = {}
 
     # Deterministic security review is evidence, not an AI opinion. Critical
     # secret findings block release; high-risk code patterns require review.
