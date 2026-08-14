@@ -10,7 +10,7 @@ import re
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from agent_orchestrator import WorkflowOrchestrator
@@ -114,6 +114,65 @@ def _migration_dest_dir(user_id: str, migration_name: str) -> Path:
 def _remove_readonly(func, path, _excinfo):
     os.chmod(path, stat.S_IWRITE)
     func(path)
+
+
+def _safe_extract_zip(upload: UploadFile, destination: Path) -> None:
+    """Extract an uploaded ZIP safely into the API service filesystem."""
+    destination.mkdir(parents=True, exist_ok=True)
+    import io
+    import zipfile
+
+    payload = upload.file.read()
+    if not payload:
+        raise HTTPException(status_code=422, detail=f"Uploaded archive '{upload.filename or 'archive'}' is empty")
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+            base = destination.resolve()
+            for member in zf.infolist():
+                target = (destination / member.filename).resolve()
+                if target != base and base not in target.parents:
+                    raise HTTPException(status_code=422, detail="Archive contains an unsafe path")
+            zf.extractall(destination)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid ZIP archive: {exc}") from exc
+
+
+@router.post("/v1/teams/upload")
+async def upload_team_files(
+    migration_name: str = Form(...),
+    source_zip: UploadFile = File(...),
+    target_zip: UploadFile | None = File(None),
+    user=Depends(get_current_user),
+):
+    """Store uploads inside agent_service before queueing the background workflow.
+
+    Render runs the UI and API as separate services, so their local filesystems
+    are not shared. The returned paths therefore always belong to the API service.
+    """
+    current_user.set(user)
+    migration_name = _validate_migration_name(migration_name)
+    uid = str(getattr(user, "id", "") or "")
+    work_id = uuid.uuid4().hex[:12]
+    base = Path(PathConstants.TEMP_DIR) / uid / migration_name / "Uploads" / work_id
+    source_dir = base / "source"
+    _safe_extract_zip(source_zip, source_dir)
+    target_path = None
+    if target_zip is not None:
+        target_dir = base / "target"
+        _safe_extract_zip(target_zip, target_dir)
+        target_path = str(target_dir.resolve())
+
+    source_path = str(source_dir.resolve())
+    logger.info(
+        "Prepared migration upload migration_name=%s user=%s source_path=%s target_path=%s",
+        migration_name, uid, source_path, target_path,
+    )
+    return {
+        "migration_name": migration_name,
+        "source_path": source_path,
+        "target_path": target_path,
+        "upload_id": work_id,
+    }
 
 
 async def execute_agent_team(task_id: str, request: RunTeamRequest, owner_user_id: str):

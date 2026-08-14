@@ -61,6 +61,28 @@ class AgentServiceClient:
         return self._request("GET", f"/v1/migration/download/{migration_name}", timeout=120)
 
     # --- workflow ---------------------------------------------------------
+    def upload_team_files(
+        self,
+        migration_name: str,
+        source_bytes: bytes,
+        source_filename: str,
+        target_bytes: Optional[bytes] = None,
+        target_filename: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        files = {
+            "source_zip": (source_filename or "source.zip", source_bytes, "application/zip"),
+        }
+        data = {"migration_name": migration_name}
+        if target_bytes is not None:
+            files["target_zip"] = (target_filename or "target.zip", target_bytes, "application/zip")
+        return self._request(
+            "POST",
+            "/v1/teams/upload",
+            timeout=120,
+            data=data,
+            files=files,
+        )
+
     def run_team(
         self,
         source_path: str,

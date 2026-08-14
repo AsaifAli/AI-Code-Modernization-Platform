@@ -6,7 +6,6 @@ import os
 import json
 import time
 import uuid
-import zipfile
 from pathlib import Path
 
 import requests
@@ -22,11 +21,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-SHARED_DIR = Path(os.getenv("SHARED_STORAGE_DIR", "/shared"))
-if not SHARED_DIR.parent.exists():
-    SHARED_DIR = Path(__file__).resolve().parent / "shared_uploads"
-SHARED_DIR.mkdir(parents=True, exist_ok=True)
 
 LOADING_LOTTIE_URL = "https://assets9.lottiefiles.com/packages/lf20_usmfx6bp.json"
 THINKING_LOTTIE_URL = "https://assets1.lottiefiles.com/packages/lf20_khzniaya.json"
@@ -140,39 +134,16 @@ st.markdown(
         100% { background-position: 0% 50%; }
     }
 
-    /* Pipeline stepper for live migration progress */
-    .step-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0 0.9rem 0; }
-    .step-chip {
-        display: flex; align-items: center; gap: 0.4rem;
-        padding: 0.35rem 0.75rem;
-        border-radius: 999px;
-        font-size: 0.82rem;
-        font-weight: 600;
-        border: 1px solid rgba(120, 120, 160, 0.18);
-        background: #f4f4f9;
-        color: #6b7280;
-        transition: all 0.3s ease;
-    }
-    .step-chip.done { background: #dcfce7; color: #166534; border-color: transparent; }
-    .step-chip.current {
-        background: #ede9fe; color: #5b21b6; border-color: transparent;
-        animation: stepPulse 1.4s ease infinite;
-    }
-    .step-chip.current .step-dot {
-        width: 7px; height: 7px; border-radius: 50%; background: #7c3aed;
-        animation: pulse 1.2s infinite;
-    }
-    @keyframes stepPulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.25); }
-        50% { box-shadow: 0 0 0 6px rgba(124, 58, 237, 0); }
-    }
-
-    /* Slide-in for step chips / list items appearing in sequence */
-    .slide-in { animation: slideIn 0.4s ease both; }
-    @keyframes slideIn {
-        from { opacity: 0; transform: translateX(-10px); }
-        to { opacity: 1; transform: translateX(0); }
-    }
+    /* Unified tachometer-style migration progress */
+    .gauge-wrap { display:flex; flex-direction:column; align-items:center; margin:1rem 0 0.75rem; }
+    .gauge { position:relative; width:250px; height:135px; overflow:hidden; }
+    .gauge-arc { position:absolute; left:12px; top:8px; width:226px; height:226px; border-radius:50%; background:conic-gradient(from 270deg, #22c55e 0deg, #06b6d4 92deg, #7c3aed 180deg, #e5e7eb 180deg 360deg); }
+    .gauge-arc::after { content:""; position:absolute; inset:24px; border-radius:50%; background:#ffffff; }
+    .gauge-needle { position:absolute; left:50%; bottom:14px; width:4px; height:92px; transform-origin:50% 100%; background:#111827; border-radius:999px; z-index:2; }
+    .gauge-pin { position:absolute; left:50%; bottom:8px; width:14px; height:14px; margin-left:-7px; border-radius:50%; background:#111827; z-index:3; }
+    .gauge-value { position:absolute; left:0; right:0; bottom:18px; text-align:center; font-size:1.6rem; font-weight:800; color:#111827; z-index:3; }
+    .gauge-label { font-size:0.82rem; color:#6b7280; margin-top:-0.1rem; }
+    .gauge-message { text-align:center; font-weight:600; margin-top:0.35rem; color:#374151; }
 
     /* Spinning icon — reserved for genuine in-progress states, not idle decoration. */
     .spin-icon { display: inline-block; animation: spin 1.6s linear infinite; }
@@ -237,23 +208,33 @@ PIPELINE_STAGES = [
 ]
 
 def render_live_plan(progress: dict):
+    """Render one unified tachometer-style progress indicator."""
     plan = progress.get("plan") or []
     if not plan:
         return
-    chips_html = []
-    for i, item in enumerate(plan):
-        state = item.get("status", "pending")
-        icon = "✓" if state == "complete" else ("●" if state == "running" else "○")
-        css = "done" if state == "complete" else ("current" if state == "running" else "")
-        chips_html.append(f'<div class="step-chip {css} slide-in">{icon} {item.get("name", "Step")}</div>')
-    st.markdown(f'<div class="step-row">{"".join(chips_html)}</div>', unsafe_allow_html=True)
-    # Percentage comes from the same states used for the chips; never trust a
-    # separate event percentage that could refer to a nested workflow step.
     completed = sum(1 for x in plan if x.get("status") == "complete")
-    running_index = next((i for i, x in enumerate(plan) if x.get("status") == "running"), None)
+    running_index = next((i for i, x in enumerate(plan) if x.get("status") in {"running", "in_progress"}), None)
     pct = 100 if completed == len(plan) else int(((running_index if running_index is not None else completed) / len(plan)) * 100)
-    st.progress(pct / 100.0, text=f"{pct}% — {progress.get('message', 'Executing migration workflow')}")
-    st.caption(f"Live Agno workflow plan · {completed}/{len(plan)} stages complete")
+    pct = max(0, min(100, pct))
+    angle = -90 + (pct * 1.8)
+    message = str(progress.get("message", "Executing migration workflow"))
+    current = next((x.get("name") for x in plan if x.get("status") in {"running", "in_progress"}), None)
+    label = current or ("Migration complete" if pct >= 100 else "Preparing migration")
+    html = (
+        '<div class="gauge-wrap">'
+        '<div class="gauge">'
+        '<div class="gauge-arc"></div>'
+        f'<div class="gauge-needle" style="transform:translateX(-50%) rotate({angle}deg);"></div>'
+        '<div class="gauge-pin"></div>'
+        f'<div class="gauge-value">{pct}%</div>'
+        '</div>'
+        f'<div class="gauge-label">{completed}/{len(plan)} stages complete</div>'
+        f'<div class="gauge-message">{label}</div>'
+        f'<div class="gauge-label">{message}</div>'
+        '</div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
 
 def skeleton_lines(n: int = 3, heights=("1.4rem", "1rem", "1rem")):
     """Render shimmering skeleton bars as a loading placeholder."""
@@ -383,30 +364,23 @@ if active_section == "New Migration":
             elif not migration_name or not description:
                 st.warning("Migration name and description are required.")
             else:
-                with st.spinner("Uploading and unpacking your project..."):
-                    work_id = f"{migration_name}-{uuid.uuid4().hex[:8]}"
-                    base = SHARED_DIR / work_id
-                    source_dir = base / "source"
-                    source_dir.mkdir(parents=True, exist_ok=True)
-                    with zipfile.ZipFile(source_zip) as zf:
-                        zf.extractall(source_dir)
-
-                    target_dir_str = None
-                    if target_zip:
-                        target_dir = base / "target"
-                        target_dir.mkdir(parents=True, exist_ok=True)
-                        with zipfile.ZipFile(target_zip) as zf:
-                            zf.extractall(target_dir)
-                        target_dir_str = str(target_dir)
-
                 try:
+                    with st.spinner("Uploading project to the migration service..."):
+                        upload_result = client.upload_team_files(
+                            migration_name=migration_name,
+                            source_bytes=source_zip.getvalue(),
+                            source_filename=source_zip.name,
+                            target_bytes=target_zip.getvalue() if target_zip else None,
+                            target_filename=target_zip.name if target_zip else None,
+                        )
+
                     with st.spinner("Queuing the agent team..."):
                         result = client.run_team(
-                            source_path=str(source_dir),
+                            source_path=upload_result["source_path"],
                             migration_name=migration_name,
                             description=description,
                             target_language=target_language or None,
-                            target_path=target_dir_str,
+                            target_path=upload_result.get("target_path"),
                             github_token=github_token or None,
                         )
                     st.session_state.active_task_id = result["task_id"]
