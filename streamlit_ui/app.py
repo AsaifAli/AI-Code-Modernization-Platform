@@ -134,16 +134,33 @@ st.markdown(
         100% { background-position: 0% 50%; }
     }
 
-    /* Unified tachometer-style migration progress */
-    .gauge-wrap { display:flex; flex-direction:column; align-items:center; margin:1rem 0 0.75rem; }
-    .gauge { position:relative; width:250px; height:135px; overflow:hidden; }
-    .gauge-arc { position:absolute; left:12px; top:8px; width:226px; height:226px; border-radius:50%; background:conic-gradient(from 270deg, #22c55e 0deg, #06b6d4 92deg, #7c3aed 180deg, #e5e7eb 180deg 360deg); }
-    .gauge-arc::after { content:""; position:absolute; inset:24px; border-radius:50%; background:#ffffff; }
-    .gauge-needle { position:absolute; left:50%; bottom:14px; width:4px; height:92px; transform-origin:50% 100%; background:#111827; border-radius:999px; z-index:2; }
-    .gauge-pin { position:absolute; left:50%; bottom:8px; width:14px; height:14px; margin-left:-7px; border-radius:50%; background:#111827; z-index:3; }
-    .gauge-value { position:absolute; left:0; right:0; bottom:18px; text-align:center; font-size:1.6rem; font-weight:800; color:#111827; z-index:3; }
-    .gauge-label { font-size:0.82rem; color:#6b7280; margin-top:-0.1rem; }
-    .gauge-message { text-align:center; font-weight:600; margin-top:0.35rem; color:#374151; }
+    /* Real car-style tachometer: curved dial, ticks, redline, animated needle. */
+    .gauge-wrap { display:flex; flex-direction:column; align-items:center; margin:0.9rem 0 0.55rem; }
+    .tachometer { position:relative; width:330px; height:205px; max-width:100%; }
+    .tachometer-face { position:absolute; inset:0; overflow:hidden; border-radius:190px 190px 0 0; background:radial-gradient(circle at 50% 108%, #ffffff 0 46%, #f3f4f6 47% 100%); box-shadow:inset 0 -10px 22px rgba(15,23,42,.05), 0 10px 22px rgba(15,23,42,.10); border:1px solid rgba(15,23,42,.10); }
+    .tachometer-arc { position:absolute; left:20px; right:20px; top:20px; height:135px; border-radius:160px 160px 0 0; border:16px solid transparent; border-bottom:none; background:conic-gradient(from 225deg at 50% 100%, #16a34a 0deg 92deg, #eab308 92deg 145deg, #f97316 145deg 166deg, #dc2626 166deg 180deg) border-box; -webkit-mask:linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; }
+    .tick { position:absolute; left:50%; top:21px; width:2px; height:14px; transform-origin:1px 144px; background:#334155; opacity:.72; border-radius:2px; }
+    .tick.major { width:3px; height:20px; opacity:.95; }
+    .tachometer-needle { position:absolute; left:50%; top:44px; width:4px; height:118px; transform-origin:50% 100%; transform:translateX(-50%) rotate(-90deg); background:linear-gradient(to top, #111827 0%, #111827 76%, #ef4444 100%); border-radius:999px; z-index:4; box-shadow:0 2px 8px rgba(15,23,42,.28); animation: tach-rev 1.45s cubic-bezier(.16,1,.3,1) both; }
+    .tachometer-needle::after { content:""; position:absolute; top:0; left:50%; width:10px; height:10px; transform:translate(-50%, -4px); border-radius:50%; background:#ef4444; box-shadow:0 0 0 2px #fff; }
+    .tachometer-hub { position:absolute; left:50%; top:145px; width:24px; height:24px; transform:translate(-50%,-50%); border-radius:50%; background:#0f172a; border:4px solid #fff; z-index:5; box-shadow:0 2px 10px rgba(15,23,42,.25); }
+    .tachometer-center { position:absolute; left:50%; top:166px; transform:translateX(-50%); text-align:center; z-index:3; }
+    .gauge-value { font-size:2rem; line-height:1; font-weight:850; color:#0f172a; letter-spacing:-.04em; animation:value-pulse 1.45s ease-out both; }
+    .gauge-unit { font-size:.72rem; font-weight:700; color:#64748b; letter-spacing:.12em; text-transform:uppercase; margin-top:.22rem; }
+    @keyframes tach-rev {
+        0% { transform:translateX(-50%) rotate(-92deg); }
+        56% { transform:translateX(-50%) rotate(calc(var(--needle-angle) + 10deg)); }
+        73% { transform:translateX(-50%) rotate(calc(var(--needle-angle) - 4deg)); }
+        88% { transform:translateX(-50%) rotate(calc(var(--needle-angle) + 1.5deg)); }
+        100% { transform:translateX(-50%) rotate(var(--needle-angle)); }
+    }
+    @keyframes value-pulse {
+        0% { opacity:.55; transform:scale(.86); }
+        60% { opacity:1; transform:scale(1.07); }
+        100% { opacity:1; transform:scale(1); }
+    }
+    .gauge-label { font-size:0.8rem; color:#64748b; margin-top:0.25rem; }
+    .gauge-message { text-align:center; font-weight:700; margin-top:0.3rem; color:#334155; }
 
     /* Spinning icon — reserved for genuine in-progress states, not idle decoration. */
     .spin-icon { display: inline-block; animation: spin 1.6s linear infinite; }
@@ -166,6 +183,8 @@ if "active_migration_name" not in st.session_state:
     st.session_state.active_migration_name = None
 if "active_task_started_at" not in st.session_state:
     st.session_state.active_task_started_at = None
+if "last_progress" not in st.session_state:
+    st.session_state.last_progress = {}
 if "active_section_widget" not in st.session_state:
     st.session_state.active_section_widget = "New Migration"
 
@@ -208,27 +227,60 @@ PIPELINE_STAGES = [
 ]
 
 def render_live_plan(progress: dict):
-    """Render one unified tachometer-style progress indicator."""
+    """Render a single car-style tachometer from persisted workflow progress."""
     plan = progress.get("plan") or []
     if not plan:
-        return
-    completed = sum(1 for x in plan if x.get("status") == "complete")
-    running_index = next((i for i, x in enumerate(plan) if x.get("status") in {"running", "in_progress"}), None)
-    pct = 100 if completed == len(plan) else int(((running_index if running_index is not None else completed) / len(plan)) * 100)
-    pct = max(0, min(100, pct))
-    angle = -90 + (pct * 1.8)
-    message = str(progress.get("message", "Executing migration workflow"))
-    current = next((x.get("name") for x in plan if x.get("status") in {"running", "in_progress"}), None)
-    label = current or ("Migration complete" if pct >= 100 else "Preparing migration")
+        # Older task payloads may only have stage/percent. Still render the tachometer.
+        percent = int(progress.get("percent") or 0)
+        stage = str(progress.get("stage") or "workflow")
+        stage_map = {
+            "planning": "Migration planning",
+            "knowledge_base": "Building knowledge base",
+            "conversion": "Converting code",
+            "engineering": "Post-migration engineering",
+            "analysis": "Analyzing migration",
+            "security": "Security verification",
+            "workflow": "Executing migration workflow",
+            "completed": "Migration complete",
+        }
+        label = stage_map.get(stage, stage.replace("_", " ").title())
+        completed = int(round(percent / 100 * len(PIPELINE_STAGES)))
+        total = len(PIPELINE_STAGES)
+        message = str(progress.get("message", "Executing migration workflow"))
+    else:
+        total = len(plan)
+        completed = sum(1 for x in plan if x.get("status") == "complete")
+        running_index = next((i for i, x in enumerate(plan) if x.get("status") in {"running", "in_progress"}), None)
+        percent = 100 if completed == total else int(((running_index if running_index is not None else completed) / total) * 100)
+        current = next((x.get("name") for x in plan if x.get("status") in {"running", "in_progress"}), None)
+        label = current or ("Migration complete" if percent >= 100 else "Preparing migration")
+        message = str(progress.get("message", "Executing migration workflow"))
+
+    percent = max(0, min(100, percent))
+    # Tachometer sweep: -92deg = far-left idle, +88deg = far-right redline.
+    angle = -92 + (percent * 1.80)
+
+    ticks = []
+    for i in range(11):
+        deg = -90 + (i * 18)
+        major = " major" if i % 2 == 0 else ""
+        ticks.append(f'<span class="tick{major}" style="transform:translateX(-50%) rotate({deg}deg)"></span>')
+
     html = (
         '<div class="gauge-wrap">'
-        '<div class="gauge">'
-        '<div class="gauge-arc"></div>'
-        f'<div class="gauge-needle" style="transform:translateX(-50%) rotate({angle}deg);"></div>'
-        '<div class="gauge-pin"></div>'
-        f'<div class="gauge-value">{pct}%</div>'
+        '<div class="tachometer">'
+        '<div class="tachometer-face">'
+        '<div class="tachometer-arc"></div>'
+        + ''.join(ticks) +
+        f'<div class="tachometer-needle" style="--needle-angle:{angle}deg;"></div>'
+        '<div class="tachometer-hub"></div>'
+        '<div class="tachometer-center">'
+        f'<div class="gauge-value">{percent}%</div>'
+        '<div class="gauge-unit">Migration Load</div>'
         '</div>'
-        f'<div class="gauge-label">{completed}/{len(plan)} stages complete</div>'
+        '</div>'
+        '</div>'
+        f'<div class="gauge-label">{completed}/{total} stages complete</div>'
         f'<div class="gauge-message">{label}</div>'
         f'<div class="gauge-label">{message}</div>'
         '</div>'
@@ -387,6 +439,7 @@ if active_section == "New Migration":
                     st.session_state.active_migration_name = migration_name
                     st.session_state.active_task_started_at = time.time()
                     st.session_state.completion_toast_shown = False
+                    st.session_state.last_progress = {"stage": "workflow", "percent": 2, "message": "Preparing workflow telemetry"}
                     st.toast(f"Migration '{migration_name}' queued")
                     st.success(f"Migration queued! Task ID `{result['task_id']}`")
 
@@ -406,7 +459,8 @@ if active_section == "New Migration":
         if not st.session_state.active_task_id:
             st.caption("Launch a migration to see live progress here.")
         else:
-            placeholder = st.container()
+            # Use a replaceable placeholder so reruns do not duplicate the live-status panel.
+            placeholder = st.empty()
             auto_refresh = st.checkbox("Auto-refresh every 4s", value=True)
             try:
                 status = client.task_status(st.session_state.active_task_id)
@@ -437,11 +491,9 @@ if active_section == "New Migration":
                                 progress = parsed
                         except Exception:
                             pass
-                    if progress:
-                        render_live_plan(progress)
-                    else:
-                        st.progress(0.02, text="Preparing workflow telemetry…")
-                    try_lottie(LOADING_LOTTIE_URL, height=100)
+                    progress = progress or st.session_state.get("last_progress") or {"stage": "workflow", "percent": 2, "message": "Preparing workflow telemetry"}
+                    st.session_state.last_progress = progress
+                    render_live_plan(progress)
                 elif badge_class == "completed":
                     # Terminal state: do not auto-rerun and do not use celebratory
                     # balloons. Keep the result visible as a professional release
@@ -467,8 +519,16 @@ if active_section == "New Migration":
                                 completed_payload = parsed_completed
                         except Exception:
                             pass
+                    terminal_progress = st.session_state.get("last_progress") or {"stage": "completed", "percent": 100, "message": "Migration complete"}
                     if completed_payload.get("plan"):
-                        render_live_plan({"plan": completed_payload["plan"], "percent": 100, "message": "All migration stages completed"})
+                        terminal_progress = {"plan": completed_payload["plan"], "percent": 100, "message": "All migration stages completed"}
+                    else:
+                        terminal_progress = dict(terminal_progress)
+                        terminal_progress["percent"] = 100
+                        terminal_progress["stage"] = "completed"
+                        terminal_progress["message"] = "All migration stages completed"
+                    st.session_state.last_progress = terminal_progress
+                    render_live_plan(terminal_progress)
                     if st.session_state.active_migration_name and completed_payload.get("release_ready", True):
                         try:
                             data = client.download_migration(st.session_state.active_migration_name)
@@ -493,6 +553,14 @@ if active_section == "New Migration":
                             pass
                     release_ready = bool(failed_payload.get("release_ready"))
                     output_message = failed_payload.get("message") or status.get("error") or "Migration did not pass the release gate."
+                    terminal_progress = st.session_state.get("last_progress") or {"stage": "workflow", "percent": 0, "message": "Migration stopped"}
+                    if failed_payload.get("plan"):
+                        terminal_progress = {"plan": failed_payload["plan"], "message": str(output_message)}
+                    else:
+                        terminal_progress = dict(terminal_progress)
+                        terminal_progress["message"] = str(output_message)
+                    st.session_state.last_progress = terminal_progress
+                    render_live_plan(terminal_progress)
                     if failed_payload.get("kind") == "blocked" or "release gate" in str(output_message).lower():
                         if st.session_state.active_migration_name:
                             try:
