@@ -7,6 +7,7 @@ import json
 import uuid
 from pathlib import Path
 from app.infrastructure.utils.user_context import current_user
+from app.infrastructure.utils.llm_gateway_context import set_llm_gateway_token
 from app.infrastructure.workflows.migration_workflow import migration_workflow
 from app.infrastructure.repositories.migration_data_repository import (
     fetch_migration_data,
@@ -111,6 +112,7 @@ class WorkflowOrchestrator:
         github_token: str = "",
         user_id: str = None,
         task_id: str | None = None,
+        llm_gateway_token: str = "",
         framework: str = None,
         architecture: str = None,
         build_tool: str = None,
@@ -123,6 +125,8 @@ class WorkflowOrchestrator:
         user = current_user.get()
         if task_id:
             bind_task(task_id)
+        if llm_gateway_token:
+            set_llm_gateway_token(llm_gateway_token)
         migration_name_ctx.set(migration_name)
         source_path = str(Path(source_path).resolve())
         source_path_ctx.set(source_path)

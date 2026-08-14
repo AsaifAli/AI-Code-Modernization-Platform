@@ -10,7 +10,7 @@ import re
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, Header
 from fastapi.responses import FileResponse
 
 from agent_orchestrator import WorkflowOrchestrator
@@ -28,6 +28,7 @@ from app.infrastructure.utils.migration_context import (
     migration_run_id_ctx,
 )
 from app.infrastructure.utils.user_context import current_user
+from app.infrastructure.utils.llm_gateway_context import set_llm_gateway_token
 from app.presentation.schemas.agent_api_schema import (
     ArchitectureRequest,
     ArchitectureResponse,
@@ -175,7 +176,7 @@ async def upload_team_files(
     }
 
 
-async def execute_agent_team(task_id: str, request: RunTeamRequest, owner_user_id: str):
+async def execute_agent_team(task_id: str, request: RunTeamRequest, owner_user_id: str, llm_gateway_token: str = ""):
     logger.info("[TASK %s] STARTED | source_path=%r owner=%r", task_id, request.source_path, owner_user_id)
     create_task(task_id, user_id=owner_user_id, status=AgentConstants.TASK_STATUS_RUNNING)
     try:
@@ -196,6 +197,7 @@ async def execute_agent_team(task_id: str, request: RunTeamRequest, owner_user_i
             request.github_token or "",
             effective_user_id,
             task_id=task_id,
+            llm_gateway_token=llm_gateway_token,
         )
         try:
             workflow_outcome = json.loads(result) if isinstance(result, str) else result
@@ -335,6 +337,7 @@ async def download_migration_v1(migration_name: str, user=Depends(get_current_us
 async def run_agent_team(
     request: RunTeamRequest,
     background_tasks: BackgroundTasks,
+    x_llm_gateway_token: str | None = Header(default=None, alias="X-LLM-Gateway-Token"),
     user=Depends(get_current_user),
 ):
     current_user.set(user)
@@ -344,7 +347,7 @@ async def run_agent_team(
     # Stack detection uses an LLM and can take longer than the UI's request
     # timeout.  Do it inside execute_agent_team, where it belongs, after this
     # endpoint has returned a task ID.
-    background_tasks.add_task(execute_agent_team, task_id, request, str(user.id))
+    background_tasks.add_task(execute_agent_team, task_id, request, str(user.id), (x_llm_gateway_token or "").strip())
     return TaskAcceptedResponse(
         task_id=task_id,
         message=AgentConstants.AGENT_TEAM_EXECUTION_QUEUED,
