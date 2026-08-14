@@ -22,8 +22,12 @@ logging.basicConfig(level=logging.INFO)
 # Environment Variables
 # --------------------------------------------------
 MODEL_TYPE = os.getenv("MODEL_TYPE", "OpenAI")
-OPENAI_MODEL_ID = os.getenv("OPENAI_MODEL_ID", "gpt-4o")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
+# Common gateway contract. Legacy OPENAI_* names remain supported for local/legacy setups.
+LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL_ID") or "gpt-4o"
+LLM_BASE_URL = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL_ID = LLM_MODEL
+OPENAI_BASE_URL = LLM_BASE_URL
 EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL")
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL")
 VLLM_CHAT_MODEL_ID = os.getenv("VLLM_CHAT_MODEL_ID")
@@ -117,8 +121,8 @@ def create_model_and_embedder():
     if MODEL_TYPE == "OpenAI":
         model = OpenAIChat(
             id=OPENAI_MODEL_ID,
-            api_key=os.getenv("OPENAI_API_KEY"),
-            base_url=OPENAI_BASE_URL,
+            api_key=LLM_API_KEY,
+            base_url=LLM_BASE_URL,
             temperature=0.1
         )
         embedder = FastEmbedEmbedder()
