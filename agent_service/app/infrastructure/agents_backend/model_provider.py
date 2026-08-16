@@ -25,7 +25,10 @@ logging.basicConfig(level=logging.INFO)
 MODEL_TYPE = os.getenv("MODEL_TYPE", "OpenAI")
 OPENAI_MODEL_ID = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL_ID", "gpt-4o")
 OPENAI_BASE_URL = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
-LLM_GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "").strip()
+LLM_GATEWAY_URL = (
+    os.getenv("LLM_GATEWAY_URL")
+    or "https://portfolio-llm-gateway.onrender.com/v1"
+).strip().rstrip("/")
 EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL")
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL")
 VLLM_CHAT_MODEL_ID = os.getenv("VLLM_CHAT_MODEL_ID")
@@ -127,7 +130,10 @@ class GatewayAwareOpenAIChat(OpenAIChat):
 
     def _gateway_config(self):
         token = get_llm_gateway_token().strip()
-        gateway_url = (LLM_GATEWAY_URL or OPENAI_BASE_URL or "").strip()
+        gateway_url = LLM_GATEWAY_URL.strip().rstrip("/")
+        if gateway_url and not gateway_url.startswith(("http://", "https://")):
+            logger.warning("Ignoring invalid LLM_GATEWAY_URL=%r; expected http(s) URL", gateway_url)
+            gateway_url = ""
         return token, gateway_url
 
     def get_client(self):
