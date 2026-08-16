@@ -12,7 +12,7 @@ from agno.knowledge.embedder.google import GeminiEmbedder
 from agno.knowledge.embedder.ollama import OllamaEmbedder
 from agno.knowledge.embedder.fastembed import FastEmbedEmbedder
 # from agno.models.vllm import VLLM
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 # --------------------------------------------------
 # Setup
 # --------------------------------------------------
@@ -111,34 +111,61 @@ class VLLMCompatibleOpenAIChat(OpenAIChat):
 
 
 class GatewayAwareOpenAIChat(OpenAIChat):
-    """OpenAI-compatible model that can use a request-scoped gateway token.
+    """OpenAI-compatible Agno model with request-scoped portfolio gateway support.
 
-    The normal deployment path keeps the existing environment-based credential.
-    Interactive portfolio demos can attach X-LLM-Gateway-Token to the API request;
-    the token is stored in a ContextVar and used for a short-lived gateway call.
+    The deployed LegacyLens API receives a short-lived gateway JWT in
+    ``X-LLM-Gateway-Token``. The router carries it into the background task,
+    where ``WorkflowOrchestrator`` binds it to a ContextVar.
+
+    Agno's OpenAIChat performs all sync/async/streaming calls through
+    ``get_client()`` / ``get_async_client()``. We therefore override those
+    two methods instead of overriding ``invoke()``. This keeps the normal
+    Agno request lifecycle intact while ensuring the per-request gateway
+    credential is used for every completion call without mutating global
+    environment variables or a shared cached client.
     """
-    def _effective_model(self):
-        token = get_llm_gateway_token()
-        if not token or not LLM_GATEWAY_URL:
-            return self
-        return OpenAIChat(
-            id=self.id,
-            api_key=token,
-            base_url=LLM_GATEWAY_URL,
-            temperature=getattr(self, "temperature", 0.1),
-        )
 
-    def invoke(self, messages, **kwargs):
-        model = self._effective_model()
-        if model is self:
-            return super().invoke(messages, **kwargs)
-        return model.invoke(messages, **kwargs)
+    def _gateway_config(self):
+        token = get_llm_gateway_token().strip()
+        gateway_url = (LLM_GATEWAY_URL or OPENAI_BASE_URL or "").strip()
+        return token, gateway_url
 
-    async def ainvoke(self, messages, **kwargs):
-        model = self._effective_model()
-        if model is self:
-            return await super().ainvoke(messages, **kwargs)
-        return await model.ainvoke(messages, **kwargs)
+    def get_client(self):
+        token, gateway_url = self._gateway_config()
+        if token and gateway_url:
+            logger.info(
+                "Using request-scoped Portfolio LLM Gateway for model=%s base_url=%s",
+                self.id,
+                gateway_url,
+            )
+            return OpenAI(
+                api_key=token,
+                base_url=gateway_url,
+                timeout=self.timeout,
+                max_retries=self.max_retries,
+                default_headers=self.default_headers,
+                default_query=self.default_query,
+            )
+        return super().get_client()
+
+    def get_async_client(self):
+        token, gateway_url = self._gateway_config()
+        if token and gateway_url:
+            logger.info(
+                "Using request-scoped Portfolio LLM Gateway (async) for model=%s base_url=%s",
+                self.id,
+                gateway_url,
+            )
+            return AsyncOpenAI(
+                api_key=token,
+                base_url=gateway_url,
+                timeout=self.timeout,
+                max_retries=self.max_retries,
+                default_headers=self.default_headers,
+                default_query=self.default_query,
+            )
+        return super().get_async_client()
+
 # --------------------------------------------------
 # Model Factory
 # --------------------------------------------------
