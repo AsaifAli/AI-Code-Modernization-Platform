@@ -11,6 +11,9 @@ from agno.knowledge.embedder.openai import OpenAIEmbedder
 from agno.knowledge.embedder.google import GeminiEmbedder
 from agno.knowledge.embedder.ollama import OllamaEmbedder
 from agno.knowledge.embedder.fastembed import FastEmbedEmbedder
+import hashlib
+import math
+
 # from agno.models.vllm import VLLM
 from openai import AsyncOpenAI, OpenAI
 # --------------------------------------------------
@@ -26,6 +29,9 @@ MODEL_TYPE = os.getenv("MODEL_TYPE", "OpenAI")
 OPENAI_MODEL_ID = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL_ID", "gpt-4o")
 OPENAI_BASE_URL = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
 LLM_GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "https://portfolio-llm-gateway.onrender.com/v1").strip()
+LLM_GATEWAY_TIMEOUT = float(os.getenv("LLM_GATEWAY_TIMEOUT", "180"))
+EMBED_MODEL_TYPE = os.getenv("EMBED_MODEL_TYPE", "fastembed").strip().lower()
+EMBED_DIMENSIONS = int(os.getenv("EMBED_DIMENSIONS", "384"))
 EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL")
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL")
 VLLM_CHAT_MODEL_ID = os.getenv("VLLM_CHAT_MODEL_ID")
@@ -128,11 +134,15 @@ class GatewayAwareOpenAIChat(OpenAIChat):
     def _gateway_config(self):
         token = get_llm_gateway_token().strip()
         gateway_url = LLM_GATEWAY_URL.strip()
+        if gateway_url.endswith("/"):
+            gateway_url = gateway_url[:-1]
         return token, gateway_url
 
     def get_client(self):
         token, gateway_url = self._gateway_config()
-        if token and gateway_url:
+        if token:
+            if not gateway_url:
+                raise RuntimeError("LLM gateway token present but LLM_GATEWAY_URL is not configured")
             logger.info(
                 "Using request-scoped Portfolio LLM Gateway for model=%s base_url=%s",
                 self.id,
@@ -141,8 +151,8 @@ class GatewayAwareOpenAIChat(OpenAIChat):
             return OpenAI(
                 api_key=token,
                 base_url=gateway_url,
-                timeout=self.timeout,
-                max_retries=self.max_retries,
+                timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
+                max_retries=max(int(self.max_retries or 0), 2),
                 default_headers=self.default_headers,
                 default_query=self.default_query,
             )
@@ -150,7 +160,9 @@ class GatewayAwareOpenAIChat(OpenAIChat):
 
     def get_async_client(self):
         token, gateway_url = self._gateway_config()
-        if token and gateway_url:
+        if token:
+            if not gateway_url:
+                raise RuntimeError("LLM gateway token present but LLM_GATEWAY_URL is not configured")
             logger.info(
                 "Using request-scoped Portfolio LLM Gateway (async) for model=%s base_url=%s",
                 self.id,
@@ -159,12 +171,68 @@ class GatewayAwareOpenAIChat(OpenAIChat):
             return AsyncOpenAI(
                 api_key=token,
                 base_url=gateway_url,
-                timeout=self.timeout,
-                max_retries=self.max_retries,
+                timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
+                max_retries=max(int(self.max_retries or 0), 2),
                 default_headers=self.default_headers,
                 default_query=self.default_query,
             )
         return super().get_async_client()
+
+
+class LowMemoryHashEmbedder:
+    """Dependency-free fallback embedder for small Render instances.
+
+    Produces deterministic, normalized vectors using hashed token/character
+    features. It avoids loading an ONNX embedding model into the service.
+    For this demo-oriented deployment, LanceDB can still perform vector/
+    lexical retrieval without the memory spike caused by FastEmbed startup.
+    """
+
+    def __init__(self, dimensions: int = 384):
+        self.id = "portfolio-hash-embedder"
+        self.dimensions = dimensions
+
+    @staticmethod
+    def _tokens(text: str):
+        text = str(text or "").lower()
+        tokens = []
+        cur = []
+        for ch in text:
+            if ch.isalnum() or ch == "_":
+                cur.append(ch)
+            elif cur:
+                tokens.append("".join(cur))
+                cur = []
+        if cur:
+            tokens.append("".join(cur))
+        return tokens
+
+    def get_embedding(self, text):
+        vec = [0.0] * self.dimensions
+        tokens = self._tokens(text)
+        if not tokens:
+            return vec
+        for token in tokens:
+            for feature in (token, token[:3], token[-3:]):
+                digest = hashlib.blake2b(feature.encode("utf-8"), digest_size=8).digest()
+                idx = int.from_bytes(digest, "little") % self.dimensions
+                sign = 1.0 if (digest[0] & 1) else -1.0
+                vec[idx] += sign
+        norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+        return [x / norm for x in vec]
+
+    def get_embedding_and_usage(self, text):
+        return self.get_embedding(text), {"prompt_tokens": 0, "total_tokens": 0}
+
+    def embed_documents(self, texts):
+        return [self.get_embedding(t) for t in texts]
+
+
+def create_embedder():
+    if EMBED_MODEL_TYPE in {"hash", "low_memory", "low-memory"}:
+        logger.warning("Using low-memory deterministic embeddings for constrained deployment")
+        return LowMemoryHashEmbedder(dimensions=EMBED_DIMENSIONS)
+    return FastEmbedEmbedder(id=os.getenv("FASTEMBED_MODEL", "BAAI/bge-small-en-v1.5"), dimensions=EMBED_DIMENSIONS)
 
 # --------------------------------------------------
 # Model Factory
@@ -178,8 +246,8 @@ def create_model_and_embedder():
             base_url=OPENAI_BASE_URL,
             temperature=0.1
         )
-        embedder = FastEmbedEmbedder()
-        logger.info("Using OpenAI-compatible model with FastEmbed local embeddings")
+        embedder = create_embedder()
+        logger.info("Using OpenAI-compatible model with constrained local embeddings")
     elif MODEL_TYPE == "VLLM":
         if not VLLM_CHAT_MODEL_ID or not VLLM_BASE_URL:
             raise ValueError("VLLM config missing")
@@ -189,7 +257,7 @@ def create_model_and_embedder():
             api_key=VLLM_API_KEY,
             temperature=0.1
         )
-        embedder = FastEmbedEmbedder()
+        embedder = create_embedder()
         logger.info(f"✅ Using vLLM model: {VLLM_CHAT_MODEL_ID}")
     elif MODEL_TYPE == "Gemini":
         model = Gemini(
@@ -197,7 +265,7 @@ def create_model_and_embedder():
             api_key=os.getenv("GOOGLE_API_KEY"),
             temperature=0.1
         )
-        embedder = FastEmbedEmbedder()
+        embedder = create_embedder()
         logger.info("✅ Using Gemini model")
     elif MODEL_TYPE == "Ollama":
         model = Ollama(
@@ -216,8 +284,8 @@ def create_model_and_embedder():
             supports_native_structured_outputs=True,
             supports_json_schema_outputs=True,
         )
-        embedder = FastEmbedEmbedder()
-        logger.info("✅ Using FastEmbed local embeddings")
+        embedder = create_embedder()
+        logger.info("✅ Using configured local embeddings")
     else:
         raise ValueError(f"Unsupported MODEL_TYPE: {MODEL_TYPE}")
     return model, embedder

@@ -14,12 +14,20 @@ services:
         value: "10000"
       - key: MODEL_TYPE
         value: "OpenAI"
-      - key: LLM_GATEWAY_URL
-        value: "https://portfolio-llm-gateway.onrender.com/v1"
       - key: OPENAI_BASE_URL
         value: "https://openrouter.ai/api/v1"
       - key: OPENAI_MODEL_ID
         value: "openai/gpt-4o-mini"
+      - key: LLM_GATEWAY_URL
+        value: "https://portfolio-llm-gateway.onrender.com/v1"
+      - key: LLM_GATEWAY_TIMEOUT
+        value: "180"
+      - key: LLM_MODEL
+        value: "gemini-3.5-flash-lite"
+      - key: EMBED_MODEL_TYPE
+        value: "hash"
+      - key: EMBED_DIMENSIONS
+        value: "384"
       - key: OPENAI_API_KEY
         sync: false
       - key: DATABASE_URL
@@ -30,8 +38,6 @@ services:
         value: "true"
       - key: STACK_ANALYZER_VERSION
         value: "1.27.6"
-      - key: EMBED_MODEL_TYPE
-        value: "fastembed"
       - key: OTEL_ENABLED
         value: "false"
       - key: PUBLIC_API_URL
