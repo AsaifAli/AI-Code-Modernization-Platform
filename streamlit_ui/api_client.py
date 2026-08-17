@@ -18,12 +18,16 @@ class ApiError(Exception):
 
 
 class AgentServiceClient:
-    def __init__(self, base_url: str = DEFAULT_BASE_URL, token: str = "streamlit-user"):
+    def __init__(self, base_url: str = DEFAULT_BASE_URL, token: str = "streamlit-user", gateway_token: str = ""):
         self.base_url = base_url.rstrip("/")
         self.token = token or "streamlit-user"
+        self.gateway_token = (gateway_token or "").strip()
 
     def _headers(self) -> Dict[str, str]:
-        return {"Authorization": f"Bearer {self.token}"}
+        headers = {"Authorization": f"Bearer {self.token}"}
+        if self.gateway_token:
+            headers["X-LLM-Gateway-Token"] = self.gateway_token
+        return headers
 
     def _request(self, method: str, path: str, timeout: int = DEFAULT_TIMEOUT, **kwargs) -> Any:
         url = f"{self.base_url}{path}"

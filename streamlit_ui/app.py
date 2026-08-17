@@ -175,6 +175,16 @@ st.markdown(
 # --------------------------------------------------------------------------
 if "base_url" not in st.session_state:
     st.session_state.base_url = DEFAULT_BASE_URL
+if "llm_gateway_session_token" not in st.session_state:
+    st.session_state.llm_gateway_session_token = ""
+
+portfolio_token = str(st.query_params.get("portfolio_llm_session", "")).strip()
+if portfolio_token:
+    st.session_state.llm_gateway_session_token = portfolio_token
+    try:
+        del st.query_params["portfolio_llm_session"]
+    except Exception:
+        pass
 if "token" not in st.session_state:
     st.session_state.token = "streamlit-user"
 if "active_task_id" not in st.session_state:
@@ -190,7 +200,7 @@ if "active_section_widget" not in st.session_state:
 
 
 def get_client() -> AgentServiceClient:
-    return AgentServiceClient(base_url=st.session_state.base_url, token=st.session_state.token)
+    return AgentServiceClient(base_url=st.session_state.base_url, token=st.session_state.token, gateway_token=st.session_state.get("llm_gateway_session_token", ""))
 
 
 def try_lottie(url: str, height: int = 160):
