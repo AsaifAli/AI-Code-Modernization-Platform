@@ -111,10 +111,10 @@ class QdrantKnowledgeBase:
                 },
             )
 
-        # Always ensure indexes, including on collections created by an
-        # earlier deployment. Qdrant Cloud strict filtering requires indexes
-        # for exact-match payload filters.
-        for field_name, schema in (
+        # Keep the payload schema synchronized with every exact-match filter
+        # used by the existing LegacyLens code. This runs on every startup so
+        # collections created by older deployments are repaired in-place.
+        payload_indexes = (
             ("_user_id", models.PayloadSchemaType.KEYWORD),
             ("_migration_name", models.PayloadSchemaType.KEYWORD),
             ("_scope", models.PayloadSchemaType.KEYWORD),
@@ -122,14 +122,23 @@ class QdrantKnowledgeBase:
             ("meta_source_file_path", models.PayloadSchemaType.KEYWORD),
             ("meta_file_name", models.PayloadSchemaType.KEYWORD),
             ("meta_doc_type", models.PayloadSchemaType.KEYWORD),
+            ("meta_migration_status", models.PayloadSchemaType.KEYWORD),
+            ("meta_plan_id", models.PayloadSchemaType.KEYWORD),
+            ("meta_symbol_id", models.PayloadSchemaType.KEYWORD),
+            ("meta_symbol_hash", models.PayloadSchemaType.KEYWORD),
+            ("meta_source_symbol_id", models.PayloadSchemaType.KEYWORD),
+            ("meta_source_symbol_hash", models.PayloadSchemaType.KEYWORD),
             ("meta_is_target", models.PayloadSchemaType.BOOL),
-        ):
+        )
+
+        for field_name, schema in payload_indexes:
             try:
                 self.client.create_payload_index(
                     collection_name=self.collection_name,
                     field_name=field_name,
                     field_schema=schema,
                 )
+                logger.debug("Ensured Qdrant payload index: %s", field_name)
             except Exception as exc:  # pragma: no cover - best-effort index setup
                 logger.debug("Payload index %s not created: %s", field_name, exc)
 
