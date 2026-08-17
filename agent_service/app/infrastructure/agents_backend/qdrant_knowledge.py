@@ -21,7 +21,6 @@ import uuid
 from typing import Any, Iterable
 
 from qdrant_client import QdrantClient, models
-from agno.knowledge.document import Document
 
 from app.infrastructure.utils.migration_context import migration_name_ctx
 from app.infrastructure.utils.user_context import current_user
@@ -76,6 +75,25 @@ def _collection_name(scope: str) -> str:
     # Qdrant collection names are easier to operate when kept short/stable.
     digest = hashlib.sha1(QDRANT_COLLECTION_PREFIX.encode("utf-8")).hexdigest()[:10]
     return f"{QDRANT_COLLECTION_PREFIX}-{digest}-{safe_scope}"
+
+
+class QdrantRecord(dict):
+    """Hybrid Qdrant record compatible with both dict-style and Agno Document-style access.
+
+    LegacyLens has two existing access patterns: some helpers index records as
+    dictionaries while planning/conversion helpers access ``record.meta_data``
+    and ``record.content``. A plain dict or plain Agno Document cannot satisfy
+    both contracts, so this adapter intentionally supports both.
+    """
+
+    def __init__(self, payload: dict[str, Any], *, score: float | None = None):
+        super().__init__(payload)
+        self.id = str(payload.get("id") or "")
+        self.name = str(payload.get("name") or "")
+        self.content = str(payload.get("text_content") or payload.get("content") or "")
+        metadata = payload.get("metadata")
+        self.meta_data = dict(metadata) if isinstance(metadata, dict) else {}
+        self.score = score
 
 
 class QdrantKnowledgeBase:
@@ -246,31 +264,9 @@ class QdrantKnowledgeBase:
         return len(points)
 
     @staticmethod
-    def _as_document(payload: dict[str, Any], *, score: float | None = None) -> Document:
-        """Convert a Qdrant payload into the Agno Document contract expected by LegacyLens.
-
-        The original LanceDB/Agno path returned Document instances. Keeping that
-        contract here avoids leaking Qdrant payload dictionaries into existing
-        planning/conversion code that accesses ``doc.content`` and
-        ``doc.meta_data`` attributes.
-        """
-        metadata = payload.get("metadata")
-        if not isinstance(metadata, dict):
-            metadata = {}
-        doc = Document(
-            id=str(payload.get("id") or ""),
-            name=str(payload.get("name") or ""),
-            content=str(payload.get("text_content") or payload.get("content") or ""),
-            meta_data=metadata,
-        )
-        if score is not None:
-            # Agno versions used by LegacyLens expose score on search results;
-            # set it defensively so this adapter remains compatible across versions.
-            try:
-                doc.score = score
-            except Exception:
-                pass
-        return doc
+    def _as_document(payload: dict[str, Any], *, score: float | None = None) -> QdrantRecord:
+        """Return a hybrid record preserving both LegacyLens result contracts."""
+        return QdrantRecord(payload, score=score)
 
     def search(
         self,
@@ -280,7 +276,7 @@ class QdrantKnowledgeBase:
         limit: int | None = None,
         max_results: int | None = None,
         **_: Any,
-    ) -> list[dict[str, Any]]:
+    ) -> list[QdrantRecord]:
         top_k = int(max_results or limit or QDRANT_TOP_K)
         if not query:
             return []
@@ -311,14 +307,14 @@ class QdrantKnowledgeBase:
             with_payload=True,
         )
 
-        results: list[Document] = []
+        results: list[QdrantRecord] = []
         for point in response.points:
             payload = point.payload or {}
             doc = self._as_document(payload, score=float(point.score or 0.0))
             results.append(doc)
         return results
 
-    def scroll(self, *, filters: dict[str, Any] | None = None, limit: int = 1000) -> list[dict[str, Any]]:
+    def scroll(self, *, filters: dict[str, Any] | None = None, limit: int = 1000) -> list[QdrantRecord]:
         records, _ = self.client.scroll(
             collection_name=self.collection_name,
             scroll_filter=self._scoped_filter(filters),
@@ -326,7 +322,7 @@ class QdrantKnowledgeBase:
             with_payload=True,
             with_vectors=False,
         )
-        return [record.payload or {} for record in records]
+        return [QdrantRecord(record.payload or {}) for record in records]
 
     def delete(self, *, filters: dict[str, Any] | None = None) -> None:
         self.client.delete(
