@@ -12,7 +12,7 @@ openai
 google-genai
 ollama
 # agents, knowledge base, remote vector DB
-qdrant-client==1.16.2
+qdrant-client==1.18.0
 
 langchain-text-splitters
 # utilities

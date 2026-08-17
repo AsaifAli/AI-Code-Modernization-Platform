@@ -33,6 +33,15 @@ QDRANT_COLLECTION_PREFIX = os.getenv("QDRANT_COLLECTION_PREFIX", "legacylens").s
 QDRANT_DENSE_MODEL = os.getenv(
     "QDRANT_DENSE_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
 ).strip()
+# Qdrant Cloud currently exposes this model under the canonical
+# `sentence-transformers/...` identifier. Accept older/mistyped aliases in
+# Render environment variables, but always send the supported model ID.
+if QDRANT_DENSE_MODEL.lower() in {
+    "transformers/all-minilm-l6-v2",
+    "all-minilm-l6-v2",
+    "sentence-transformers/all-minilm-l6-v2",
+}:
+    QDRANT_DENSE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 QDRANT_SPARSE_MODEL = os.getenv("QDRANT_SPARSE_MODEL", "qdrant/bm25").strip()
 QDRANT_DENSE_DIMENSIONS = int(os.getenv("QDRANT_DENSE_DIMENSIONS", "384"))
 QDRANT_TOP_K = int(os.getenv("QDRANT_TOP_K", "8"))
@@ -85,27 +94,26 @@ class QdrantKnowledgeBase:
         self._ensure_collection()
 
     def _ensure_collection(self) -> None:
-        if self.client.collection_exists(self.collection_name):
-            return
+        if not self.client.collection_exists(self.collection_name):
+            logger.info("Creating Qdrant collection %s", self.collection_name)
+            self.client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config={
+                    "dense_vector": models.VectorParams(
+                        size=QDRANT_DENSE_DIMENSIONS,
+                        distance=models.Distance.COSINE,
+                    )
+                },
+                sparse_vectors_config={
+                    "bm25_sparse_vector": models.SparseVectorParams(
+                        modifier=models.Modifier.IDF,
+                    )
+                },
+            )
 
-        logger.info("Creating Qdrant collection %s", self.collection_name)
-        self.client.create_collection(
-            collection_name=self.collection_name,
-            vectors_config={
-                "dense_vector": models.VectorParams(
-                    size=QDRANT_DENSE_DIMENSIONS,
-                    distance=models.Distance.COSINE,
-                )
-            },
-            sparse_vectors_config={
-                "bm25_sparse_vector": models.SparseVectorParams(
-                    modifier=models.Modifier.IDF,
-                )
-            },
-        )
-
-        # Index the fields we routinely filter on. Index creation is optional
-        # for correctness but important once the collection grows.
+        # Always ensure indexes, including on collections created by an
+        # earlier deployment. Qdrant Cloud strict filtering requires indexes
+        # for exact-match payload filters.
         for field_name, schema in (
             ("_user_id", models.PayloadSchemaType.KEYWORD),
             ("_migration_name", models.PayloadSchemaType.KEYWORD),
@@ -113,6 +121,7 @@ class QdrantKnowledgeBase:
             ("meta_source", models.PayloadSchemaType.KEYWORD),
             ("meta_source_file_path", models.PayloadSchemaType.KEYWORD),
             ("meta_file_name", models.PayloadSchemaType.KEYWORD),
+            ("meta_doc_type", models.PayloadSchemaType.KEYWORD),
             ("meta_is_target", models.PayloadSchemaType.BOOL),
         ):
             try:
