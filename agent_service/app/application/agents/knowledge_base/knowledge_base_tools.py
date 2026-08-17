@@ -1,5 +1,4 @@
 import os
-import lancedb
 import logging
 import json
 from typing import Optional, Any, Tuple
@@ -24,6 +23,11 @@ from app.infrastructure.utils.enums.migration_event import MigrationEvent
 load_dotenv()
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+def _ensure_qdrant_kb_ready() -> None:
+    if kb.source_knowledge is None or kb.target_knowledge is None:
+        kb.init_knowledge_bases()
+
 
 _kb_event_helper = MigrationEventHelper(
     agent_name="knowledge_base",
@@ -50,6 +54,7 @@ def _get_json_artifact_repo() -> IJsonArtifactRepository:
     return _json_artifact_repo
 
 def load_json_to_knowledge(step_input: StepInput) -> StepOutput:
+    _ensure_qdrant_kb_ready()
     """Load data from a JSON file and add it to the knowledge base."""
     try:
         migration_dir = get_migration_directory("", "")

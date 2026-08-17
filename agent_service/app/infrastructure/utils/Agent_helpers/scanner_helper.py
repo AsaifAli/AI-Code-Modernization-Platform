@@ -25,7 +25,6 @@ from app.infrastructure.utils.file_utils import (
 from app.infrastructure.utils.ctag_engine import parse, ParseRequest, FilePayload
 from app.application.agents.utility_agent import utility_agent
 from app.infrastructure.utils.ctags_scanner import *
-from app.infrastructure.agents_backend.model_provider import model_embedder
 from app.application.agents.scanner.scanner_agent import tech_detector
 from app.infrastructure.utils.Constants.app_constants import AgentConstants, Constants
 from app.infrastructure.utils.user_context import current_user

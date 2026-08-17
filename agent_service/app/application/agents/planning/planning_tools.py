@@ -39,7 +39,6 @@ from app.infrastructure.repositories.folder_structure_goals_repository import (
     get_folder_structure_goals_repository,
 )
 from app.infrastructure.utils.enums.migration_event import MigrationEvent
-from app.infrastructure.agents_backend.model_provider import model_embedder
 from app.infrastructure.utils.Constants.agent_event import AgentEventMessages
 from app.infrastructure.utils.Agent_helpers.planning_helper import *
 from app.infrastructure.utils.token_tracker import track_tokens
@@ -63,6 +62,11 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 MODEL_TYPE = os.getenv("MODEL_TYPE", "OpenAI")
 PLANNING_LLM_TIMEOUT_SEC = int(os.getenv("PLANNING_LLM_TIMEOUT_SEC", "180"))
+
+def _ensure_qdrant_kb_ready() -> None:
+    if kb.source_knowledge is None or kb.target_knowledge is None:
+        kb.init_knowledge_bases()
+
 
 _file_mapping_repo: Optional[IFileMappingRepository] = None
 _folder_goals_repo: Optional[IFolderStructureGoalsRepository] = None
@@ -204,6 +208,7 @@ migration_plan_msg_group_id = MigrationEvent.MIGRATION_PLAN
 
 
 def get_symbol_module_meta(step_input: StepInput) -> StepOutput:
+    _ensure_qdrant_kb_ready()
     """Fetch all symbols and modules from Knowledge Base"""
      # ── Skip if plan already exists ───────────────────────────────────────
     existing = _load_existing_plan()
@@ -330,6 +335,7 @@ def get_symbol_module_meta(step_input: StepInput) -> StepOutput:
 )
 
 def generate_dependency_plan(step_input: StepInput) -> StepOutput:
+    _ensure_qdrant_kb_ready()
     """
     Reads source symbols and dependencies from step output (get_symbol_module_meta),
     calls dependency_agent to predict the target dependency file,
@@ -794,6 +800,7 @@ def generate_symbols_transformation(step_input: StepInput) -> StepOutput:
     return StepOutput(content={"transformations": transformations, "naming": all_naming})
 
 def generate_migration_plan(step_input: StepInput) -> StepOutput:
+    _ensure_qdrant_kb_ready()
     """
     Step 3: pure-Python plan assembly — no LLM call.
     """

@@ -24,9 +24,19 @@ services:
         value: "180"
       - key: LLM_MODEL
         value: "gemini-3.5-flash-lite"
-      - key: EMBED_MODEL_TYPE
-        value: "hash"
-      - key: EMBED_DIMENSIONS
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: QDRANT_CLOUD_INFERENCE
+        value: "true"
+      - key: QDRANT_COLLECTION_PREFIX
+        value: "legacylens"
+      - key: QDRANT_DENSE_MODEL
+        value: "sentence-transformers/all-MiniLM-L6-v2"
+      - key: QDRANT_SPARSE_MODEL
+        value: "qdrant/bm25"
+      - key: QDRANT_DENSE_DIMENSIONS
         value: "384"
       - key: OPENAI_API_KEY
         sync: false

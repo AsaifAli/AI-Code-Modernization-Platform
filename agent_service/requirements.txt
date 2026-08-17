@@ -11,10 +11,10 @@ agno
 openai
 google-genai
 ollama
-# agents, knowledge base, embeddings, vector DB
+# agents, knowledge base, remote vector DB
+qdrant-client==1.16.2
 
 langchain-text-splitters
-lancedb
 # utilities
 
 plantuml
@@ -31,4 +31,3 @@ numpy
 tantivy
 pylance
 huggingface_hub
-fastembed

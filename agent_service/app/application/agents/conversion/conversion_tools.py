@@ -53,6 +53,11 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 _conversion_step_start_sent: set = set()
 
+def _ensure_qdrant_kb_ready() -> None:
+    if kb.source_knowledge is None or kb.target_knowledge is None:
+        kb.init_knowledge_bases()
+
+
 _folder_goals_repo: Optional[IFolderStructureGoalsRepository] = None
 _json_artifact_repo: Optional[IJsonArtifactRepository] = None
 __all__=[

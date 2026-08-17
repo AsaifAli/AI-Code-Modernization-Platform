@@ -3,11 +3,8 @@ import json
 import logging
 from typing import List
 from pathlib import Path
-from agno.vectordb.lancedb import LanceDb
-from agno.knowledge.knowledge import Knowledge
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from app.infrastructure. utils.file_utils import get_migration_directory
-from app.infrastructure.agents_backend.model_provider import model_embedder
+from app.infrastructure.agents_backend.qdrant_knowledge import QdrantKnowledgeBase, _collection_name
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 __all__ = [
@@ -24,120 +21,85 @@ __all__ = [
 ]
 # ------------------------------ File Utils ------------------------------
 class KnowledgeBaseDB:
-    
-    def __init__(self,):
-     base = get_migration_directory("", "")
-     uri_path = base / "lancedb_data"
-     vector_db = LanceDb(
-         table_name="knowledge_vectors",
-         uri=uri_path,
-         embedder=model_embedder,
-     )
-    # THIS IS NEED FOR AGENTIC RAG OR AGENTIC FILTERING BUT IS A BUG IN AGNO ----
-    #  contents_db = SqliteDb(
-    #      db_file=str(base / "kb_contents.db"),
-    #      knowledge_table="knowledge_contents",
-    #  )
-     self.kb = Knowledge(vector_db=vector_db)
-     
+    """Persistent remote knowledge base backed by Qdrant Cloud.
+
+    The public surface intentionally matches the previous vector-store helper so
+    the agent/tool layer does not need to know which vector store is used.
+    """
+
+    def __init__(self):
+        self.source = QdrantKnowledgeBase(_collection_name("source"))
+        self.target = QdrantKnowledgeBase(_collection_name("target"))
+        # Existing callers use ``self.kb`` for the currently active mixed KB.
+        self.kb = self.source
+
+    def _select_kb(self, is_target: bool = False) -> QdrantKnowledgeBase:
+        return self.target if is_target else self.source
+
     def add_ast_chunks(self, chunks: List[dict], ast_artifact_path: str) -> int:
-        """
-        Add AST chunks with unique names to avoid content_hash overwrites.
-        Supports both SOURCE and TARGET projects via is_target metadata flag.
-        Language-agnostic implementation.
-        
-        Args:
-            chunks: List of chunk dicts with 'content' and 'metadata' keys
-            ast_artifact_path: Path to the AST file
-        
-        Returns:
-            Number of chunks successfully added
-        """
         if not chunks:
             return 0
-        
+
         def normalize_path_for_kb(path: str) -> str:
-            """Normalize path to Unix-style for consistent KB storage"""
             return str(Path(path).as_posix()) if path else ""
-        
+
         contents = []
         for i, ch in enumerate(chunks):
             c = ch.get("content", "")
             md = dict(ch.get("metadata") or {})
             if not c:
                 continue
-            
+
             md["source"] = normalize_path_for_kb(ast_artifact_path)
-            
-            # Generate unique name with target prefix
             fn = md.get("file_name", Path(md.get("source_file_path", "")).name or "unknown")
             idx = md.get("chunk_index", i)
             ct = md.get("chunk_type", "chunk")
-            
-            # Include is_target in unique name for clarity
             target_prefix = "target_" if md.get("is_target", False) else "source_"
             unique_name = f"{target_prefix}{fn}_chunk_{idx}_{ct}"
-            
-            contents.append({
-                "name": unique_name,
-                "text_content": c,
-                "metadata": md
-            })
-        
-        if contents:
-            try:
-                self.kb.insert_many(contents)
-                project_type = "TARGET" if contents[0].get("metadata", {}).get("is_target") else "SOURCE"
-                logger.info(f"✅ Successfully added {len(contents)} {project_type} AST chunks to KB")
-            except Exception as e:
-                logger.error(f"❌ Failed to add AST chunks to KB: {e}", exc_info=True)
-                raise
-        
-        return len(contents)
-        
-    def isFilePresent(self, file_name: str) -> bool:
-        results = self.kb.search(
-                                   filters={"source": file_name},
-                                   limit=1
-                               )
-        return len(results) > 0
-    def get_chunks_by_metadata(self, filters: dict, limit: int = 1000) -> List[dict]:
-        """Table-scan by metadata (no semantic query). For verification after insert."""
-        vdb = getattr(self.kb, "vector_db", None)
-        if not vdb:
-            return []
-        if getattr(vdb, "connection", None) and getattr(vdb, "table", None) is None:
-            vdb.table = vdb.connection.open_table(name=getattr(vdb, "table_name", "knowledge_vectors"))
-        t = getattr(vdb, "table", None)
-        if not t:
-            return []
+
+            contents.append({"name": unique_name, "text_content": c, "metadata": md})
+
+        if not contents:
+            return 0
+
+        kb = self.target if contents[0]["metadata"].get("is_target") else self.source
         try:
-            total = t.count_rows()
-            df = t.search().select(["payload"]).limit(min(limit, max(total, 1))).to_pandas()
-            out = []
-            for _, row in df.iterrows():
-                try:
-                    p = json.loads(row["payload"])
-                    md = p.get("meta_data") or p.get("metadata") or {}
-                    match = all(
-                        str(md.get(k, "")).replace("\\", "/") == str(v).replace("\\", "/")
-                        if k in ("source", "source_file_path") else md.get(k) == v
-                        for k, v in filters.items()
-                    )
-                    if match:
-                        out.append({"content": (p.get("content") or "")[:200], "meta_data": md})
-                except Exception:
-                    continue
-            return out
-        except Exception as e:
-            logger.warning(f"get_chunks_by_metadata: {e}")
-            return []
-_instance = None  # will hold the single instance
+            inserted = kb.insert_many(contents)
+            project_type = "TARGET" if contents[0]["metadata"].get("is_target") else "SOURCE"
+            logger.info("Successfully added %s %s AST chunks to Qdrant", inserted, project_type)
+            return inserted
+        except Exception as exc:
+            logger.error("Failed to add AST chunks to Qdrant: %s", exc, exc_info=True)
+            raise
+
+    def isFilePresent(self, file_name: str) -> bool:
+        for kb in (self.source, self.target):
+            if kb.scroll(filters={"source": file_name}, limit=1):
+                return True
+        return False
+
+    def get_chunks_by_metadata(self, filters: dict, limit: int = 1000) -> List[dict]:
+        out = []
+        for kb in (self.source, self.target):
+            for payload in kb.scroll(filters=filters, limit=limit):
+                md = payload.get("metadata") or {}
+                out.append({
+                    "content": (payload.get("text_content") or payload.get("content") or "")[:200],
+                    "meta_data": md,
+                })
+                if len(out) >= limit:
+                    return out
+        return out
+
+
+_instance = None
+
 def get_prompt_manager_instance():
     global _instance
     if _instance is None:
         _instance = KnowledgeBaseDB()
     return _instance
+
 def flatten_json(data, prefix=""):
     """Recursively flatten JSON into key-path → value text pairs."""
     items = []
