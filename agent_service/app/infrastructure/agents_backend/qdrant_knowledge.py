@@ -21,6 +21,7 @@ import uuid
 from typing import Any, Iterable
 
 from qdrant_client import QdrantClient, models
+from agno.knowledge.document import Document
 
 from app.infrastructure.utils.migration_context import migration_name_ctx
 from app.infrastructure.utils.user_context import current_user
@@ -244,6 +245,33 @@ class QdrantKnowledgeBase:
         )
         return len(points)
 
+    @staticmethod
+    def _as_document(payload: dict[str, Any], *, score: float | None = None) -> Document:
+        """Convert a Qdrant payload into the Agno Document contract expected by LegacyLens.
+
+        The original LanceDB/Agno path returned Document instances. Keeping that
+        contract here avoids leaking Qdrant payload dictionaries into existing
+        planning/conversion code that accesses ``doc.content`` and
+        ``doc.meta_data`` attributes.
+        """
+        metadata = payload.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        doc = Document(
+            id=str(payload.get("id") or ""),
+            name=str(payload.get("name") or ""),
+            content=str(payload.get("text_content") or payload.get("content") or ""),
+            meta_data=metadata,
+        )
+        if score is not None:
+            # Agno versions used by LegacyLens expose score on search results;
+            # set it defensively so this adapter remains compatible across versions.
+            try:
+                doc.score = score
+            except Exception:
+                pass
+        return doc
+
     def search(
         self,
         query: str | None = None,
@@ -258,16 +286,7 @@ class QdrantKnowledgeBase:
             return []
         if query.strip() == "*":
             payloads = self.scroll(filters=filters, limit=top_k)
-            return [
-                {
-                    "name": p.get("name"),
-                    "text_content": p.get("text_content") or p.get("content") or "",
-                    "content": p.get("text_content") or p.get("content") or "",
-                    "metadata": p.get("metadata") or {},
-                    "score": 0.0,
-                }
-                for p in payloads
-            ]
+            return [self._as_document(p, score=0.0) for p in payloads]
         scoped_filter = self._scoped_filter(filters)
 
         response = self.client.query_points(
@@ -292,18 +311,11 @@ class QdrantKnowledgeBase:
             with_payload=True,
         )
 
-        results: list[dict[str, Any]] = []
+        results: list[Document] = []
         for point in response.points:
             payload = point.payload or {}
-            results.append(
-                {
-                    "name": payload.get("name"),
-                    "text_content": payload.get("text_content") or payload.get("content") or "",
-                    "content": payload.get("text_content") or payload.get("content") or "",
-                    "metadata": payload.get("metadata") or {},
-                    "score": float(point.score or 0.0),
-                }
-            )
+            doc = self._as_document(payload, score=float(point.score or 0.0))
+            results.append(doc)
         return results
 
     def scroll(self, *, filters: dict[str, Any] | None = None, limit: int = 1000) -> list[dict[str, Any]]:
