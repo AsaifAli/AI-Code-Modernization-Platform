@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shlex
 import os
 import shutil
 import subprocess
@@ -171,24 +172,6 @@ def _run(root: Path, name: str, command: list[str], *, required: bool = True,
             stderr=str(exc), required=required, category=category,
         )
 
-def _python_checks(root: Path) -> list[tuple[str, list[str], bool, str]]:
-    checks = [
-        ("python-compile", ["python", "-m", "compileall", "-q", "."], True, "syntax"),
-    ]
-    if _tool("ruff"):
-        checks.append(("ruff", ["ruff", "check", "."], True, "lint"))
-    elif _tool("python"):
-        checks.append(("ruff", ["python", "-m", "ruff", "check", "."], False, "lint"))
-    if _tool("pytest"):
-        checks.append(("pytest", ["pytest", "-q"], True, "test"))
-    else:
-        checks.append(("pytest", ["python", "-m", "pytest", "-q"], False, "test"))
-    if _tool("mypy") or _tool("python"):
-        checks.append(("mypy", ["mypy", "."], False, "typecheck"))
-    return checks
-
-
-
 def _repository_structure_checks(root: Path) -> list[tuple[str, list[str], bool, str]]:
     """Reject ambiguous/contaminated target trees before release."""
     files = [
@@ -318,67 +301,6 @@ def check_node_repository_integrity(root: str | Path) -> bool:
             errors.append(f"{path.relative_to(root)} -> multiple module.exports assignments")
 
     return not errors
-
-def _node_checks(root: Path) -> list[tuple[str, list[str], bool, str]]:
-    package = root / "package.json"
-    scripts = {}
-    if package.exists():
-        try:
-            scripts = json.loads(package.read_text(encoding="utf-8")).get("scripts", {})
-        except Exception:
-            pass
-    checks: list[tuple[str, list[str], bool, str]] = []
-    if (root / "package-lock.json").exists():
-        checks.append(("npm-ci", ["npm", "ci"], True, "install"))
-    elif (root / "pnpm-lock.yaml").exists() and _tool("pnpm"):
-        checks.append(("pnpm-install", ["pnpm", "install", "--frozen-lockfile"], True, "install"))
-    if "lint" in scripts:
-        checks.append(("npm-lint", ["npm", "run", "lint"], True, "lint"))
-    if "test" in scripts:
-        checks.append(("npm-test", ["npm", "test", "--", "--runInBand"], True, "test"))
-    if "build" in scripts:
-        checks.append(("npm-build", ["npm", "run", "build"], True, "build"))
-    checks.extend(_node_repository_checks(root))
-    return checks
-
-def _java_checks(root: Path) -> list[tuple[str, list[str], bool, str]]:
-    if (root / "mvnw").exists():
-        mvn = "./mvnw"
-    else:
-        mvn = "mvn"
-    if (root / "pom.xml").exists():
-        return [("maven-test", [mvn, "-B", "test"], True, "test"),
-                ("maven-package", [mvn, "-B", "-DskipTests", "package"], True, "build")]
-    gradle = "./gradlew" if (root / "gradlew").exists() else "gradle"
-    return [("gradle-test", [gradle, "test"], True, "test"),
-            ("gradle-build", [gradle, "build"], True, "build")]
-
-def _go_checks(root: Path) -> list[tuple[str, list[str], bool, str]]:
-    return [
-        ("gofmt", ["sh", "-c", "test -z \"$(gofmt -l .)\""], True, "format"),
-        ("go-vet", ["go", "vet", "./..."], True, "lint"),
-        ("go-test", ["go", "test", "./..."], True, "test"),
-        ("go-build", ["go", "build", "./..."], True, "build"),
-    ]
-
-def _php_checks(root: Path) -> list[tuple[str, list[str], bool, str]]:
-    checks = [("composer-validate", ["composer", "validate", "--no-check-publish"], True, "lint")]
-    if (root / "composer.lock").exists():
-        checks.append(("composer-install", ["composer", "install", "--no-interaction", "--prefer-dist"], True, "install"))
-    for p in root.rglob("*.php"):
-        if any(part in IGNORED_DIRS for part in p.parts):
-            continue
-        checks.append((f"php-lint:{p.relative_to(root)}", ["php", "-l", str(p.relative_to(root))], True, "syntax"))
-    if (root / "vendor" / "bin" / "phpunit").exists():
-        checks.append(("phpunit", ["vendor/bin/phpunit", "--testdox"], True, "test"))
-    return checks[:80]
-
-def _dotnet_checks(root: Path) -> list[tuple[str, list[str], bool, str]]:
-    return [
-        ("dotnet-restore", ["dotnet", "restore"], True, "install"),
-        ("dotnet-build", ["dotnet", "build", "--no-restore"], True, "build"),
-        ("dotnet-test", ["dotnet", "test", "--no-build"], True, "test"),
-    ]
 
 def checks_for_stack(root: Path, stack: str) -> list[tuple[str, list[str], bool, str]]:
     """Resolve validation through the registered language adapter.

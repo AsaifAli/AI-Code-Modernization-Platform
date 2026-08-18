@@ -19,6 +19,7 @@ from app.infrastructure.repositories.prompt_repository import fetch_prompt_from_
 import app.application.agents.knowledge_base.knowledge_base_agent as kb
 from app.application.agents.conversion.conversion_agent import conversion_agent
 from app.infrastructure.utils.Agent_helpers.conversion_helper import _conversion_event_helper
+from app.infrastructure.utils.language_adapters import adapter_for_file, get_adapter, ExecutionContract
 from app.domain.interfaces.i_folder_structure_goals_repository import (
     IFolderStructureGoalsRepository,
 )
@@ -52,11 +53,6 @@ from app.infrastructure.utils.enums.migration_event import MigrationEvent
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 _conversion_step_start_sent: set = set()
-
-def _ensure_qdrant_kb_ready() -> None:
-    if kb.source_knowledge is None or kb.target_knowledge is None:
-        kb.init_knowledge_bases()
-
 
 _folder_goals_repo: Optional[IFolderStructureGoalsRepository] = None
 _json_artifact_repo: Optional[IJsonArtifactRepository] = None
@@ -257,6 +253,29 @@ def generate_new_code(step_input: StepInput) -> dict:
         f"Architecture    : {runtime_tech['architecture'] or 'Unknown'}\n"
     )
 
+    # Resolve executable behavior through the language adapter registry. The
+    # conversion engine never branches on source/target language itself.
+    execution_contract = None
+    entrypoint_context = ""
+    try:
+        source_adapter = adapter_for_file(Path(str(source_file_path)))
+        if source_adapter is not None:
+            execution_contract = source_adapter.detect_execution_contract(
+                Path(str(source_file_path)), target_symbol_name
+            )
+        if execution_contract and execution_contract.executable:
+            target_adapter = get_adapter(runtime_tech.get("language", ""))
+            target_name = target_adapter.display_name if target_adapter else runtime_tech.get("language", "target")
+            entrypoint_context = (
+                "SOURCE EXECUTION CONTRACT: the source module executes the translated "
+                f"symbol '{execution_contract.entry_symbol}'. Preserve that runtime behavior "
+                f"using the idiomatic executable entry-point convention of the target language ({target_name}). "
+                "Do not add an entry point when the source is clearly a reusable library/module."
+            )
+    except Exception:
+        execution_contract = None
+        entrypoint_context = ""
+
     try:
         user = current_user.get()
         migration_name = migration_name_ctx.get(None)
@@ -295,6 +314,7 @@ def generate_new_code(step_input: StepInput) -> dict:
         EXISTING DEPENDENCIES TO USE: {deps_content} 
         EXISTING SIMILAR CODE SNIPPETS: []
         PRE-APPROVED LIBRARIES (from dependency file — use these for imports, do not invent others): {file_deps_content}
+        {entrypoint_context}
         When writing the target code, make sure to correctly use the exisisting dependencies alongwith their correct import paths/naming conventions.
         Return just the final raw code, no extra explanations & no extra formatting such as ```python, ```, etc.  
         """
@@ -305,6 +325,12 @@ def generate_new_code(step_input: StepInput) -> dict:
         target_code = target_code.split("\n", 1)[1] if "\n" in target_code else ""
     if target_code.endswith("```"):
         target_code = target_code.rsplit("\n", 1)[0] if "\n" in target_code else target_code[:-3]
+
+    target_adapter = get_adapter(runtime_tech.get("language", ""))
+    if target_adapter is not None and execution_contract is not None:
+        target_code = target_adapter.ensure_entrypoint(
+            target_code, execution_contract, target_symbol_name
+        )
 
     track_tokens(resp, source="conversion:symbol_convert")
 

@@ -22,5 +22,9 @@ conversion_agent = Agent(
     - No import statements unless they are strictly required by the converted symbol.
     - Follow the coding style of any similar snippets provided.
     - Do not add example usage blocks or standalone invocation calls at the end.
+    - Preserve executable entry-point semantics from the source module. If the source
+      module executes a translated symbol at runtime, the target must preserve that
+      behavior using the idiomatic entry-point convention of the target language.
+      Do not add an entry point when the source is clearly a reusable library/module.
     """
 )
