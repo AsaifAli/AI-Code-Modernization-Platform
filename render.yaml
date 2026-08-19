@@ -6,7 +6,8 @@ services:
     region: singapore
     autoDeployTrigger: checksPass
     healthCheckPath: /healthz
-    dockerCommand: 'python main.py'
+    dockerfilePath: ./agent_service/Dockerfile
+    dockerContext: ./agent_service
     envVars:
       - key: SERVICE_HOST
         value: "0.0.0.0"
@@ -60,7 +61,8 @@ services:
     region: singapore
     autoDeployTrigger: checksPass
     healthCheckPath: /_stcore/health
-    dockerCommand: 'streamlit run app.py --server.port $PORT --server.address=0.0.0.0 --server.headless=true'
+    dockerfilePath: ./streamlit_ui/Dockerfile
+    dockerContext: ./streamlit_ui
     envVars:
       - key: AGENT_SERVICE_URL
         fromService:
