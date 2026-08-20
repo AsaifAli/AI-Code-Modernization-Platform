@@ -22,6 +22,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Shared premium visual layer (presentation-only).
+from ui_theme import apply_theme
+apply_theme()
+
+
 LOADING_LOTTIE_URL = "https://assets9.lottiefiles.com/packages/lf20_usmfx6bp.json"
 THINKING_LOTTIE_URL = "https://assets1.lottiefiles.com/packages/lf20_khzniaya.json"
 EMPTY_LOTTIE_URL = "https://assets1.lottiefiles.com/packages/lf20_wnqlfojb.json"
