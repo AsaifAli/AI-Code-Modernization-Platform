@@ -252,11 +252,15 @@ def convert_workflow(step_input: StepInput) -> StepOutput:
 
     return StepOutput(
         content={
-            AgentConstants.RESPONSE_MESSAGE: MigrationWorkflowStrings.CONVERSION_WORKFLOW_COMPLETED,
+            AgentConstants.RESPONSE_MESSAGE: (
+                MigrationWorkflowStrings.CONVERSION_WORKFLOW_COMPLETED
+                if not errors
+                else "Conversion completed with errors."
+            ),
             "converted": len(results),
             "skipped":   len(skipped),
             "failed":    len(errors),
             "errors":    errors,
         },
-        success=True,
+        success=not errors,
     )

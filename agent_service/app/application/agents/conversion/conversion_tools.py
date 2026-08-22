@@ -230,6 +230,47 @@ def get_dependencies(step_input: StepInput) -> StepOutput:
         "file_dependencies":       planned_libs_content,
     })
 
+def _target_file_extension(target_language: str, source_file_path: str) -> str:
+    """Pick a safe target extension from the registered language adapter."""
+    adapter = get_adapter((target_language or "").strip().lower())
+    if adapter and adapter.extensions:
+        return sorted(adapter.extensions)[0]
+    return Path(str(source_file_path or "")).suffix or ".txt"
+
+
+def _normalize_target_file_path(target_file: str, source_file_path: str, target_language: str) -> str:
+    """Normalize planner output into a safe, file-like relative path.
+
+    Older/LLM-generated plans have occasionally returned the output directory name
+    (e.g. ``Migrated Code``) instead of a file path. That must never reach the
+    file writer because it turns the directory into the target path.
+    """
+    raw = str(target_file or "").strip().replace("\\", "/")
+    raw = raw.lstrip("/")
+    for prefix in ("Migrated Code/", "migrated_code/", "Migrated Code", "migrated_code"):
+        if raw == prefix.rstrip("/"):
+            raw = ""
+            break
+        if raw.startswith(prefix):
+            raw = raw[len(prefix):].lstrip("/")
+            break
+
+    path = Path(raw) if raw else Path()
+    invalid_names = {"", ".", "Migrated Code", "migrated_code", ".migration"}
+    if (
+        not raw
+        or path.name in invalid_names
+        or path.suffix == ""
+        or path.name.startswith(".")
+        or any(part in {".", ".."} for part in path.parts)
+    ):
+        source = Path(str(source_file_path or ""))
+        stem = source.stem or "migrated_module"
+        path = Path(stem + _target_file_extension(target_language, str(source)))
+
+    return path.as_posix()
+
+
 def generate_new_code(step_input: StepInput) -> dict:
     """Fetches meta data for a given symbol by filtering KB"""
     # print(step_input, "+++")
@@ -239,9 +280,13 @@ def generate_new_code(step_input: StepInput) -> dict:
     symbol_id = prev_output.get("symbol_id")
     symbol_hash = prev_output.get("symbol_hash")
     workflow_input = step_input.input
-    target_file_path = workflow_input.get("target_file")
-    target_symbol_name = workflow_input.get("target_symbol_name")
     runtime_tech = _get_runtime_tech_context()
+    target_file_path = _normalize_target_file_path(
+        workflow_input.get("target_file"),
+        source_file_path,
+        runtime_tech.get("language", ""),
+    )
+    target_symbol_name = workflow_input.get("target_symbol_name")
     dependencies_output =  step_input.get_step_content("get_dependencies")
     file_deps = dependencies_output.get("file_dependencies")
     deps = dependencies_output.get("dependent_code_snippets")
@@ -320,7 +365,19 @@ def generate_new_code(step_input: StepInput) -> dict:
         """
         )
 
-    target_code = _extract_clean_code((resp.content or "").strip())
+    raw_response = (resp.content or "").strip()
+    target_code = _extract_clean_code(raw_response)
+    lowered = target_code.strip().lower()
+    if (
+        not target_code.strip()
+        or lowered in {"unknown model error", "model error", "rate limit error", "rate limited"}
+        or "rate limit reached" in lowered
+        or "too many requests" in lowered
+    ):
+        raise RuntimeError(
+            "LLM code generation failed before producing source code. "
+            "The LLM gateway may be rate-limited; retry after the gateway cooldown."
+        )
     if target_code.startswith("```"):
         target_code = target_code.split("\n", 1)[1] if "\n" in target_code else ""
     if target_code.endswith("```"):
@@ -354,9 +411,14 @@ def generate_new_code(step_input: StepInput) -> dict:
 def save_code_to_kb(step_input: StepInput) -> StepOutput:
     """Save converted code to file and KB, track part-wise completion."""
     workflow_input     = step_input.input
-    target_file_path   = workflow_input.get("target_file")
     target_symbol_name = workflow_input.get("target_symbol_name")
     source_file_path   = workflow_input.get("file_path")
+    target_language = _get_runtime_tech_context().get("language", "")
+    target_file_path = _normalize_target_file_path(
+        workflow_input.get("target_file"),
+        source_file_path,
+        target_language,
+    )
     source_symbol_id   = workflow_input.get("symbol_id")
     source_symbol_name = workflow_input.get("symbol_name")
     plan_id            = workflow_input.get("plan_id")
@@ -366,8 +428,16 @@ def save_code_to_kb(step_input: StepInput) -> StepOutput:
     source_symbol_hash = prev_output.get("symbol_hash")
     # ── Write file to migration output directory ───────────────────────────
     migration_dir = get_migration_directory("", "")
-    output_path   = migration_dir / "Migrated Code" / target_file_path
+    output_root = migration_dir / "Migrated Code"
+    output_root.mkdir(parents=True, exist_ok=True)
+    output_path = output_root / target_file_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists() and output_path.is_dir():
+        fallback_name = (
+            Path(source_file_path or "migrated_module.py").stem
+            + _target_file_extension(target_language, source_file_path or "")
+        )
+        output_path = output_root / fallback_name
     if output_path.exists():
         existing_lines = sum(1 for _ in output_path.open("r", encoding="utf-8"))
     else:

@@ -24,6 +24,9 @@ OPENAI_MODEL_ID = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL_ID", "gpt-4o
 OPENAI_BASE_URL = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
 LLM_GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "https://portfolio-llm-gateway.onrender.com/v1").strip()
 LLM_GATEWAY_TIMEOUT = float(os.getenv("LLM_GATEWAY_TIMEOUT", "180"))
+# Demo/portfolio gateways commonly rate-limit bursts. Avoid immediate SDK retries
+# that amplify a 429; make the value configurable for production.
+LLM_GATEWAY_MAX_RETRIES = max(0, int(os.getenv("LLM_GATEWAY_MAX_RETRIES", "0")))
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL")
 VLLM_CHAT_MODEL_ID = os.getenv("VLLM_CHAT_MODEL_ID")
 VLLM_API_KEY = os.getenv("VLLM_API_KEY") or "local"
@@ -98,7 +101,7 @@ class GatewayAwareOpenAIChat(OpenAIChat):
                 api_key=token,
                 base_url=gateway_url,
                 timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
-                max_retries=max(int(self.max_retries or 0), 2),
+                max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
                 default_headers=self.default_headers,
                 default_query=self.default_query,
             )
@@ -118,7 +121,7 @@ class GatewayAwareOpenAIChat(OpenAIChat):
                 api_key=token,
                 base_url=gateway_url,
                 timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
-                max_retries=max(int(self.max_retries or 0), 2),
+                max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
                 default_headers=self.default_headers,
                 default_query=self.default_query,
             )
