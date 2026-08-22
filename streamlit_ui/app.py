@@ -667,15 +667,40 @@ if active_section == "New Migration":
                         terminal_progress["message"] = str(output_message)
                     st.session_state.last_progress = terminal_progress
                     render_live_plan(terminal_progress)
-                    if failed_payload.get("kind") == "blocked" or "release gate" in str(output_message).lower():
-                        if st.session_state.active_migration_name:
-                            try:
-                                data = client.download_migration(st.session_state.active_migration_name)
-                                st.download_button("Download gated artifact", data=data, file_name=f"{st.session_state.active_migration_name}.zip", mime="application/zip", width="stretch", key="blocked_demo_download")
-                            except ApiError:
-                                st.caption("Download will be available shortly.")
-                    else:
-                        st.error(f"Migration failed: {output_message}")
+                    st.error(f"Migration failed: {output_message}")
+
+                    # Keep the download affordance visible for every terminal failure.
+                    # A real migrated ZIP is downloadable when packaging succeeded; otherwise
+                    # provide a small failure report so the user always has a retrievable artifact.
+                    if st.session_state.active_migration_name:
+                        try:
+                            data = client.download_migration(st.session_state.active_migration_name)
+                            st.download_button(
+                                "Download available artifact",
+                                data=data,
+                                file_name=f"{st.session_state.active_migration_name}.zip",
+                                mime="application/zip",
+                                width="stretch",
+                                key="failed_run_artifact_download",
+                            )
+                        except ApiError:
+                            failure_report = {
+                                "migration": st.session_state.active_migration_name,
+                                "task_id": st.session_state.active_task_id,
+                                "status": state,
+                                "message": str(output_message),
+                                "result": failed_payload or status.get("result"),
+                                "last_progress": st.session_state.get("last_progress"),
+                            }
+                            st.download_button(
+                                "Download failure report",
+                                data=json.dumps(failure_report, indent=2, default=str).encode("utf-8"),
+                                file_name=f"{st.session_state.active_migration_name}-failure-report.json",
+                                mime="application/json",
+                                width="stretch",
+                                key="failed_run_report_download",
+                            )
+                            st.caption("No migrated ZIP was created before the failure; the report preserves the run details for review.")
 
                 if status.get("result"):
                     with st.expander("Workflow payload", expanded=False):

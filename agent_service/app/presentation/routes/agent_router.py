@@ -21,6 +21,7 @@ from app.infrastructure.utils.Constants.migration_workflow import MigrationWorkf
 from app.infrastructure.utils.auth_client import get_current_user_http as get_current_user
 from app.infrastructure.repositories.migration_data_repository import fetch_migration_data, delete_migration_data
 from app.infrastructure.repositories.task_repository import create_task, update_task, get_task
+from app.infrastructure.utils.task_progress import bind_task
 from app.infrastructure.utils.migration_context import (
     migration_id_ctx,
     migration_name_ctx,
@@ -179,6 +180,9 @@ async def upload_team_files(
 async def execute_agent_team(task_id: str, request: RunTeamRequest, owner_user_id: str, llm_gateway_token: str = ""):
     logger.info("[TASK %s] STARTED | source_path=%r owner=%r", task_id, request.source_path, owner_user_id)
     create_task(task_id, user_id=owner_user_id, status=AgentConstants.TASK_STATUS_RUNNING)
+    # Connect workflow progress events to this persisted task so the UI
+    # receives live updates through GET /v1/tasks/{task_id}.
+    bind_task(task_id)
     try:
         # Background task: bind the authenticated user (ignore client-supplied user_id on the body).
         try:
