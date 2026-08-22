@@ -3,6 +3,7 @@ Agent orchestrator: sets context and runs the migration workflow (latest applica
 """
 import logging
 import asyncio
+import os
 import json
 import uuid
 from pathlib import Path
@@ -253,17 +254,18 @@ class WorkflowOrchestrator:
         publish_progress("planning", 1, "Migration workflow started", plan=plan)
 
         def _run_streaming():
+            lightweight = os.getenv("LEGACYLENS_LIGHTWEIGHT_EXECUTION", "true").strip().lower() not in {"0", "false", "no", "off"}
             stream = self.workflow.run(
                 input=source_path_ctx.get(),
                 session_id=str(uuid.uuid4()),
-                debug_mode=True,
-                show_step_details=True,
+                debug_mode=not lightweight,
+                show_step_details=not lightweight,
                 stream=True,
                 stream_events=True,
                 stream_executor_events=False,
-                # Agno is the canonical execution event source; task_progress
-                # persists a compact snapshot for the REST/UI client.
-                store_events=True,
+                # Keep the live outer-step stream for the UI, but avoid retaining
+                # the full Agno event history on small hosted instances.
+                store_events=not lightweight,
             )
             final_output = None
             # Only these outer workflow names may update the seven-stage UI.

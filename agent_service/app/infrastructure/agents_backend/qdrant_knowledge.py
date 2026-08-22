@@ -131,8 +131,9 @@ class QdrantKnowledgeBase:
             )
 
         # Keep the payload schema synchronized with every exact-match filter
-        # used by the existing LegacyLens code. This runs on every startup so
-        # collections created by older deployments are repaired in-place.
+        # used by the existing LegacyLens code. Avoid recreating already-present
+        # indexes on every migration; that otherwise causes many synchronous
+        # network writes to Qdrant before the actual workflow can start.
         payload_indexes = (
             ("_user_id", models.PayloadSchemaType.KEYWORD),
             ("_migration_name", models.PayloadSchemaType.KEYWORD),
@@ -150,14 +151,24 @@ class QdrantKnowledgeBase:
             ("meta_is_target", models.PayloadSchemaType.BOOL),
         )
 
+        try:
+            collection_info = self.client.get_collection(self.collection_name)
+            existing_schema = getattr(collection_info, "payload_schema", None) or {}
+            existing_fields = set(existing_schema.keys()) if hasattr(existing_schema, "keys") else set()
+        except Exception as exc:  # pragma: no cover - best-effort optimization
+            logger.debug("Could not inspect existing payload indexes for %s: %s", self.collection_name, exc)
+            existing_fields = set()
+
         for field_name, schema in payload_indexes:
+            if field_name in existing_fields:
+                continue
             try:
                 self.client.create_payload_index(
                     collection_name=self.collection_name,
                     field_name=field_name,
                     field_schema=schema,
                 )
-                logger.debug("Ensured Qdrant payload index: %s", field_name)
+                logger.debug("Created missing Qdrant payload index: %s", field_name)
             except Exception as exc:  # pragma: no cover - best-effort index setup
                 logger.debug("Payload index %s not created: %s", field_name, exc)
 
