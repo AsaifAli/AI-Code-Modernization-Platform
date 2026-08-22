@@ -12,6 +12,7 @@ import requests
 import streamlit as st
 
 from api_client import AgentServiceClient, ApiError, DEFAULT_BASE_URL
+from sidebar_toggle import render_sidebar_toggle
 
 # --------------------------------------------------------------------------
 # Page config & constants
@@ -25,6 +26,7 @@ st.set_page_config(
 # Shared premium visual layer (presentation-only).
 from ui_theme import apply_theme
 apply_theme()
+render_sidebar_toggle()
 
 
 LOADING_LOTTIE_URL = "https://assets9.lottiefiles.com/packages/lf20_usmfx6bp.json"
@@ -41,135 +43,59 @@ TARGET_LANGUAGES = [
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
-
-    html, body, [class*="css"]  { font-family: 'Inter', sans-serif; }
-
     .hero {
         position: relative;
-        border-radius: 18px;
         overflow: hidden;
-        padding: 2.6rem 2.2rem;
-        margin-bottom: 1.6rem;
-        background: linear-gradient(120deg, #4f46e5, #7c3aed, #06b6d4);
-        color: white;
-        box-shadow: 0 10px 30px rgba(79, 70, 229, 0.25);
+        border-radius: 22px;
+        padding: 2.2rem 2.3rem 2rem;
+        margin-bottom: 1.2rem;
+        background: linear-gradient(135deg, var(--ui-hero-start) 0%, var(--ui-hero-mid) 48%, var(--ui-hero-end) 100%);
+        color: var(--ui-hero-text);
+        border: 1px solid var(--ui-hero-border);
+        box-shadow: 0 18px 50px rgba(15,23,42,.18);
     }
-    .hero h1 { font-weight: 800; font-size: 2.4rem; margin-bottom: 0.3rem; }
-    .hero p { font-size: 1.05rem; opacity: 0.92; max-width: 640px; }
+    .hero::after {
+        content:"";
+        position:absolute; width:360px; height:360px; right:-110px; top:-160px;
+        background:radial-gradient(circle, var(--ui-hero-glow), transparent 68%);
+        pointer-events:none;
+    }
+    .hero h1 { position:relative; z-index:1; font-weight:850; font-size:2.45rem; letter-spacing:-.04em; margin:0 0 .45rem; }
+    .hero p { position:relative; z-index:1; font-size:1.04rem; color:var(--ui-hero-muted); max-width:760px; margin:0; line-height:1.6; }
+    .hero-kicker { position:relative; z-index:1; font-size:.72rem; letter-spacing:.16em; text-transform:uppercase; font-weight:800; color:var(--ui-accent); margin-bottom:.55rem; }
+    .hero-chips { position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:.45rem; margin-top:1.15rem; }
+    .hero-chip { display:inline-flex; align-items:center; gap:.4rem; padding:.34rem .68rem; border-radius:999px; border:1px solid var(--ui-hero-chip-border); background:var(--ui-hero-chip-bg); color:var(--ui-hero-text); font-size:.76rem; font-weight:700; }
+    .status-dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; }
+    .status-dot.online { background:#22c55e; box-shadow:0 0 0 4px rgba(34,197,94,.12); }
+    .status-dot.offline { background:#ef4444; box-shadow:0 0 0 4px rgba(239,68,68,.10); }
+    .status-dot.checking { background:#94a3b8; animation:pulse 1.2s infinite; }
+    @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(148,163,184,.55)} 70%{box-shadow:0 0 0 8px rgba(148,163,184,0)} 100%{box-shadow:0 0 0 0 rgba(148,163,184,0)} }
 
-    /* Status dot: solid color, no idle motion. Pulse is reserved for the
-       brief moment a check is actually in flight (see .status-dot.checking). */
-    .status-dot {
-        display: inline-block;
-        width: 10px; height: 10px;
-        border-radius: 50%;
-        margin-right: 8px;
-    }
-    .status-dot.online { background: #22c55e; }
-    .status-dot.offline { background: #ef4444; }
-    .status-dot.checking { background: #94a3b8; animation: pulse 1.2s infinite; }
-    @keyframes pulse {
-        0% { box-shadow: 0 0 0 0 rgba(148, 163, 184, 0.55); }
-        70% { box-shadow: 0 0 0 8px rgba(148, 163, 184, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(148, 163, 184, 0); }
-    }
-
-    .fade-in { animation: fadeIn 0.6s ease-in; }
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(8px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    .glass-card {
-        background: rgba(255, 255, 255, 0.55);
-        border: 1px solid rgba(120, 120, 160, 0.15);
-        border-radius: 14px;
-        padding: 1.1rem 1.3rem;
-        margin-bottom: 0.9rem;
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
-    }
-    .glass-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 8px 22px rgba(30, 30, 60, 0.12);
-    }
-
-    .stButton>button {
-        border-radius: 10px;
-        font-weight: 600;
-        transition: transform 0.12s ease;
-    }
-    .stButton>button:hover { transform: translateY(-1px); }
-
-    .badge {
-        display: inline-block;
-        padding: 0.2rem 0.65rem;
-        border-radius: 999px;
-        font-size: 0.78rem;
-        font-weight: 700;
-        letter-spacing: 0.02em;
-    }
-    .badge.running { background: #fef9c3; color: #854d0e; }
-    .badge.completed { background: #dcfce7; color: #166534; }
-    .badge.failed { background: #fee2e2; color: #991b1b; }
-
-    .completion-card {
-        border: 1px solid #bbf7d0;
-        background: linear-gradient(135deg, #f0fdf4, #f8fafc);
-        border-radius: 14px;
-        padding: 1rem 1.1rem;
-        margin: 0.8rem 0 1rem 0;
-    }
-    .completion-title {
-        font-size: 1.05rem; font-weight: 800; color: #166534;
-    }
-    .completion-subtitle {
-        margin-top: 0.2rem; color: #475569; font-size: 0.9rem;
-    }
-
-    /* Skeleton loading shimmer, shown while a request is in flight */
-    .skeleton {
-        border-radius: 10px;
-        background: linear-gradient(90deg, #eceef3 25%, #f7f8fb 37%, #eceef3 63%);
-        background-size: 400% 100%;
-        animation: shimmer 1.4s ease infinite;
-    }
-    @keyframes shimmer {
-        0% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
-    }
-
-    /* Real car-style tachometer: curved dial, ticks, redline, animated needle. */
-    .gauge-wrap { display:flex; flex-direction:column; align-items:center; margin:0.9rem 0 0.55rem; }
-    .tachometer { position:relative; width:330px; height:205px; max-width:100%; }
-    .tachometer-face { position:absolute; inset:0; overflow:hidden; border-radius:190px 190px 0 0; background:radial-gradient(circle at 50% 108%, #ffffff 0 46%, #f3f4f6 47% 100%); box-shadow:inset 0 -10px 22px rgba(15,23,42,.05), 0 10px 22px rgba(15,23,42,.10); border:1px solid rgba(15,23,42,.10); }
-    .tachometer-arc { position:absolute; left:20px; right:20px; top:20px; height:135px; border-radius:160px 160px 0 0; border:16px solid transparent; border-bottom:none; background:conic-gradient(from 225deg at 50% 100%, #16a34a 0deg 92deg, #eab308 92deg 145deg, #f97316 145deg 166deg, #dc2626 166deg 180deg) border-box; -webkit-mask:linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; }
-    .tick { position:absolute; left:50%; top:21px; width:2px; height:14px; transform-origin:1px 144px; background:#334155; opacity:.72; border-radius:2px; }
-    .tick.major { width:3px; height:20px; opacity:.95; }
-    .tachometer-needle { position:absolute; left:50%; top:44px; width:4px; height:118px; transform-origin:50% 100%; transform:translateX(-50%) rotate(-90deg); background:linear-gradient(to top, #111827 0%, #111827 76%, #ef4444 100%); border-radius:999px; z-index:4; box-shadow:0 2px 8px rgba(15,23,42,.28); animation: tach-rev 1.45s cubic-bezier(.16,1,.3,1) both; }
-    .tachometer-needle::after { content:""; position:absolute; top:0; left:50%; width:10px; height:10px; transform:translate(-50%, -4px); border-radius:50%; background:#ef4444; box-shadow:0 0 0 2px #fff; }
-    .tachometer-hub { position:absolute; left:50%; top:145px; width:24px; height:24px; transform:translate(-50%,-50%); border-radius:50%; background:#0f172a; border:4px solid #fff; z-index:5; box-shadow:0 2px 10px rgba(15,23,42,.25); }
-    .tachometer-center { position:absolute; left:50%; top:166px; transform:translateX(-50%); text-align:center; z-index:3; }
-    .gauge-value { font-size:2rem; line-height:1; font-weight:850; color:#0f172a; letter-spacing:-.04em; animation:value-pulse 1.45s ease-out both; }
-    .gauge-unit { font-size:.72rem; font-weight:700; color:#64748b; letter-spacing:.12em; text-transform:uppercase; margin-top:.22rem; }
-    @keyframes tach-rev {
-        0% { transform:translateX(-50%) rotate(-92deg); }
-        56% { transform:translateX(-50%) rotate(calc(var(--needle-angle) + 10deg)); }
-        73% { transform:translateX(-50%) rotate(calc(var(--needle-angle) - 4deg)); }
-        88% { transform:translateX(-50%) rotate(calc(var(--needle-angle) + 1.5deg)); }
-        100% { transform:translateX(-50%) rotate(var(--needle-angle)); }
-    }
-    @keyframes value-pulse {
-        0% { opacity:.55; transform:scale(.86); }
-        60% { opacity:1; transform:scale(1.07); }
-        100% { opacity:1; transform:scale(1); }
-    }
-    .gauge-label { font-size:0.8rem; color:#64748b; margin-top:0.25rem; }
-    .gauge-message { text-align:center; font-weight:700; margin-top:0.3rem; color:#334155; }
-
-    /* Spinning icon — reserved for genuine in-progress states, not idle decoration. */
-    .spin-icon { display: inline-block; animation: spin 1.6s linear infinite; }
-    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .workbench-panel { background:var(--ui-surface); border:1px solid var(--ui-border); border-radius:18px; padding:1.05rem 1.15rem; box-shadow:var(--ui-shadow); }
+    .panel-kicker { text-transform:uppercase; letter-spacing:.14em; font-size:.7rem; font-weight:850; color:var(--ui-accent); margin-bottom:.35rem; }
+    .panel-title { font-size:1.05rem; font-weight:800; color:var(--ui-text); margin-bottom:.15rem; }
+    .panel-subtitle { font-size:.88rem; color:var(--ui-muted); line-height:1.5; }
+    .step-row { display:grid; grid-template-columns:2rem 1fr; gap:.75rem; align-items:start; padding:.78rem 0; border-top:1px solid var(--ui-border); }
+    .step-row:first-of-type { border-top:none; padding-top:.2rem; }
+    .step-no { width:2rem; height:2rem; display:flex; align-items:center; justify-content:center; border-radius:9px; font-size:.72rem; font-weight:850; background:var(--ui-tint); color:var(--ui-accent); border:1px solid var(--ui-border); }
+    .step-title { font-weight:760; color:var(--ui-text); font-size:.92rem; }
+    .step-copy { font-size:.78rem; color:var(--ui-muted); margin-top:.15rem; line-height:1.45; }
+    .metric-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.75rem; margin:.8rem 0 1.15rem; }
+    .metric-card { background:var(--ui-surface); border:1px solid var(--ui-border); border-radius:16px; padding:.85rem .9rem; box-shadow:var(--ui-shadow); }
+    .metric-label { color:var(--ui-faint); font-size:.72rem; font-weight:750; text-transform:uppercase; letter-spacing:.09em; }
+    .metric-value { color:var(--ui-text); font-size:1.25rem; font-weight:850; margin-top:.18rem; }
+    .soft-note { border:1px solid var(--ui-border); background:var(--ui-surface-2); border-radius:14px; padding:.75rem .85rem; color:var(--ui-muted); font-size:.8rem; line-height:1.5; }
+    .state-card { border:1px solid var(--ui-border); background:linear-gradient(135deg,var(--ui-surface),var(--ui-surface-2)); border-radius:18px; padding:1rem 1.1rem; box-shadow:var(--ui-shadow); }
+    .state-title { font-weight:820; color:var(--ui-text); font-size:1rem; }
+    .state-copy { color:var(--ui-muted); font-size:.83rem; line-height:1.5; margin-top:.15rem; }
+    .completion-card { border:1px solid rgba(34,197,94,.28); background:linear-gradient(135deg,rgba(34,197,94,.08),var(--ui-surface)); border-radius:16px; padding:1rem 1.1rem; margin:.8rem 0 1rem; }
+    .completion-title { font-size:1rem; font-weight:820; color:var(--ui-success); }
+    .completion-subtitle { margin-top:.2rem; color:var(--ui-muted); font-size:.84rem; }
+    .glass-card { background:var(--ui-surface); border:1px solid var(--ui-border); border-radius:16px; padding:1rem 1.1rem; margin-bottom:.75rem; box-shadow:var(--ui-shadow); }
+    .fade-in { animation:uiFadeUp .4s ease both; }
+    @keyframes uiFadeUp { from {opacity:0; transform:translateY(6px)} to {opacity:1; transform:none} }
+    @media (max-width: 900px) { .metric-strip { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation:none !important; transition:none !important; } }
     </style>
     """,
     unsafe_allow_html=True,
@@ -330,51 +256,62 @@ def count_up(label: str, target: int, duration: float = 0.5, steps: int = 12):
 # Sidebar
 # --------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("### Connection")
+    st.markdown("### LegacyLens")
+    st.caption("AI Code Migration Studio")
+    st.markdown('<div class="soft-note">🧩 Developer workbench · evidence-first modernization</div>', unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown("**Connection**")
     st.session_state.base_url = st.text_input("agent_service URL", st.session_state.base_url)
     st.session_state.token = st.text_input(
-        "Your identity token",
+        "Identity token",
         st.session_state.token,
         help=(
-            "agent_service runs standalone: any bearer token you type here becomes a stable "
-            "local identity, scoping which migrations you see. Use the same value across "
-            "sessions to see your past migrations."
+            "agent_service uses this stable bearer identity to scope which migrations you can see."
         ),
     )
-
     client = get_client()
     try:
         health = client.health()
         online = str(health.get("status", "")).lower() in ("ok", "healthy")
     except ApiError:
         online = False
-
     dot_class = "online" if online else "offline"
     label = "Connected" if online else "Unreachable"
-    st.markdown(
-        f'<span class="status-dot {dot_class}"></span>**{label}**',
-        unsafe_allow_html=True,
-    )
-    if not online:
-        st.caption("Check the URL and that agent_service is running.")
+    st.markdown(f'<span class="status-dot {dot_class}"></span><strong>{label}</strong>', unsafe_allow_html=True)
+    if online:
+        st.caption("agent_service is responding")
+    else:
+        st.caption("Check the URL and agent_service status.")
+    st.markdown("---")
+    st.markdown("**Current migration**")
+    st.markdown(f"`{st.session_state.get('active_migration_name') or 'None'}`")
+    if st.session_state.get("active_task_id"):
+        st.caption(f"Task · {st.session_state.active_task_id}")
+    st.markdown("---")
+    st.markdown("**Workflow**")
+    for idx, (_, name) in enumerate(PIPELINE_STAGES, start=1):
+        st.caption(f"{idx:02d}  {name}")
 
 # --------------------------------------------------------------------------
-# Hero
+# Product shell
 # --------------------------------------------------------------------------
 st.markdown(
-    f"""
+    """
     <div class="hero fade-in">
-        <h1>AI Code Migration Studio</h1>
-        <p>Upload a legacy codebase, describe where you want it to go, and let the
-        agent_service AI team scan, plan, and convert it — live, end to end.</p>
+      <div class="hero-kicker">AI-assisted developer workbench</div>
+      <h1>Modernize legacy code with evidence, not guesswork.</h1>
+      <p>Scan a codebase, build a migration plan, convert it with an agent team, and verify the result before release — with traceable workflow evidence at every stage.</p>
+      <div class="hero-chips">
+        <span class="hero-chip">🧭 Dependency-aware planning</span>
+        <span class="hero-chip">🧪 Behavioral verification</span>
+        <span class="hero-chip">🛡️ Release gates</span>
+        <span class="hero-chip">📦 Downloadable artifact</span>
+      </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# Use a stateful navigation control instead of st.tabs. Native st.tabs reset to
-# the first tab after every st.rerun(), which made the live migration view jump
-# away during Verify Plan / conversion and made completed runs hard to return to.
 SECTIONS = [
     "New Migration",
     "My Migrations",
@@ -383,9 +320,6 @@ SECTIONS = [
     "Ask the Codebase",
     "About",
 ]
-# Keep widget-owned state separate from application state. Streamlit forbids
-# mutating a widget's keyed session state after the widget is instantiated.
-# The widget itself is therefore the single source of truth for navigation.
 active_section = st.segmented_control(
     "Migration sections",
     SECTIONS,
@@ -394,36 +328,47 @@ active_section = st.segmented_control(
     label_visibility="collapsed",
 )
 
+st.markdown(
+    '<div class="metric-strip">'
+    '<div class="metric-card"><div class="metric-label">Workflow</div><div class="metric-value">7 stages</div></div>'
+    '<div class="metric-card"><div class="metric-label">Verification</div><div class="metric-value">Behavioral</div></div>'
+    '<div class="metric-card"><div class="metric-label">Release gate</div><div class="metric-value">Enabled</div></div>'
+    f'<div class="metric-card"><div class="metric-label">Active migration</div><div class="metric-value">{st.session_state.get("active_migration_name") or "None"}</div></div>'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
 # --------------------------------------------------------------------------
 # Tab: New Migration
 # --------------------------------------------------------------------------
 if active_section == "New Migration":
-    left, right = st.columns([1.3, 1])
+    left, right = st.columns([1.3, 1], gap="large")
 
     with left:
-        st.markdown("#### 1. Upload your source project (.zip)")
+        st.markdown('<div class="panel-kicker">01 · SOURCE</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-title">Bring the codebase into the workbench</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-subtitle">Upload the source project and optionally provide an existing target project for comparison-aware migrations.</div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:.55rem"></div>', unsafe_allow_html=True)
         source_zip = st.file_uploader("Source project archive", type=["zip"], key="source_zip")
-        target_zip = st.file_uploader(
-            "Optional: existing target project archive", type=["zip"], key="target_zip"
-        )
+        target_zip = st.file_uploader("Optional target archive", type=["zip"], key="target_zip")
+        st.markdown('<div class="soft-note">🔒 Uploaded archives are passed to the migration service workspace. The UI does not inspect or rewrite project contents client-side.</div>', unsafe_allow_html=True)
 
-        st.markdown("#### 2. Describe the migration")
-        migration_name = st.text_input(
-            "Migration name", placeholder="e.g. billing-service-to-fastapi"
-        )
+        st.markdown('<div style="height:1.0rem"></div><div class="panel-kicker">02 · INTENT</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-title">Describe the modernization objective</div>', unsafe_allow_html=True)
+        migration_name = st.text_input("Migration name", placeholder="e.g. billing-service-to-fastapi")
         description = st.text_area(
-            "Describe what you want",
-            placeholder="Migrate this Java Spring service to a Python FastAPI microservice, "
-                        "keeping the existing REST contract...",
-            height=110,
+            "Migration brief",
+            placeholder="Migrate this Java Spring service to a Python FastAPI microservice, keeping the existing REST contract...",
+            height=125,
         )
         col_a, col_b = st.columns(2)
         with col_a:
-            target_language = st.selectbox("Target language (optional, auto-detected)", TARGET_LANGUAGES)
+            target_language = st.selectbox("Target language", TARGET_LANGUAGES)
         with col_b:
             github_token = st.text_input("GitHub token (optional)", type="password")
 
-        launch = st.button("Launch migration", type="primary", width='stretch')
+        launch = st.button("Launch migration", type="primary", width="stretch")
+        st.caption("The agent team will scan → verify → plan → convert → engineer → gate the release.")
 
         if launch:
             if not source_zip:
@@ -440,7 +385,6 @@ if active_section == "New Migration":
                             target_bytes=target_zip.getvalue() if target_zip else None,
                             target_filename=target_zip.name if target_zip else None,
                         )
-
                     with st.spinner("Queuing the agent team..."):
                         result = client.run_team(
                             source_path=upload_result["source_path"],
@@ -456,25 +400,34 @@ if active_section == "New Migration":
                     st.session_state.completion_toast_shown = False
                     st.session_state.last_progress = {"stage": "workflow", "percent": 2, "message": "Preparing workflow telemetry"}
                     st.toast(f"Migration '{migration_name}' queued")
-                    st.success(f"Migration queued! Task ID `{result['task_id']}`")
-
+                    st.success(f"Migration queued · `{result['task_id']}`")
                     detected = {
                         k.replace("detected_", "").replace("_", " ").title(): v
                         for k, v in result.items()
                         if k.startswith("detected_") and v not in (None, False, "")
                     }
                     if detected:
-                        st.markdown("**Detected stack:**")
-                        st.json(detected, expanded=False)
+                        with st.expander("Detected stack", expanded=False):
+                            st.json(detected, expanded=False)
                 except ApiError as e:
                     st.error(f"Failed to launch migration: {e.detail}")
 
     with right:
-        st.markdown("#### Live status")
+        st.markdown('<div class="panel-kicker">03 · LIVE WORKFLOW</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-title">Migration control room</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-subtitle">Live progress is read from persisted workflow events, not simulated timers.</div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:.45rem"></div>', unsafe_allow_html=True)
         if not st.session_state.active_task_id:
-            st.caption("Launch a migration to see live progress here.")
+            st.markdown(
+                '<div class="state-card"><div class="state-title">Ready for a migration</div><div class="state-copy">Launch a project to watch the seven-stage engineering pipeline execute here.</div></div>',
+                unsafe_allow_html=True,
+            )
+            for i, (icon, name) in enumerate(PIPELINE_STAGES, start=1):
+                st.markdown(
+                    f'<div class="step-row"><div class="step-no">{i:02d}</div><div><div class="step-title">{icon} {name}</div><div class="step-copy">Evidence is persisted so completed runs can be reviewed later.</div></div></div>',
+                    unsafe_allow_html=True,
+                )
         else:
-            # Use a replaceable placeholder so reruns do not duplicate the live-status panel.
             placeholder = st.empty()
             auto_refresh = st.checkbox("Auto-refresh every 4s", value=True)
             try:
@@ -491,7 +444,8 @@ if active_section == "New Migration":
 
             with placeholder:
                 st.markdown(
-                    f'<span class="badge {badge_class}">{state.upper()}</span>',
+                    f'<div class="state-card"><div class="state-title"><span class="badge {badge_class}">{state.upper()}</span> &nbsp; {st.session_state.get("active_migration_name") or "Migration"}</div>'
+                    f'<div class="state-copy">Task · <code>{st.session_state.active_task_id}</code></div></div>',
                     unsafe_allow_html=True,
                 )
                 if badge_class == "running":
@@ -510,21 +464,10 @@ if active_section == "New Migration":
                     st.session_state.last_progress = progress
                     render_live_plan(progress)
                 elif badge_class == "completed":
-                    # Terminal state: do not auto-rerun and do not use celebratory
-                    # balloons. Keep the result visible as a professional release
-                    # status card and leave the task available for inspection.
                     if not st.session_state.get("completion_toast_shown"):
                         st.toast("Migration completed", icon="✓")
                         st.session_state.completion_toast_shown = True
-                    st.markdown(
-                        """
-                        <div class="completion-card">
-                            <div class="completion-title">Migration complete</div>
-                            <div class="completion-subtitle">The workflow reached a terminal state. Review the evidence below before downloading the release.</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown('<div class="completion-card"><div class="completion-title">Release candidate ready</div><div class="completion-subtitle">The workflow reached a terminal state. Review verification evidence before downloading the artifact.</div></div>', unsafe_allow_html=True)
                     raw_completed = status.get("result")
                     completed_payload = {}
                     if isinstance(raw_completed, str):
@@ -539,23 +482,16 @@ if active_section == "New Migration":
                         terminal_progress = {"plan": completed_payload["plan"], "percent": 100, "message": "All migration stages completed"}
                     else:
                         terminal_progress = dict(terminal_progress)
-                        terminal_progress["percent"] = 100
-                        terminal_progress["stage"] = "completed"
-                        terminal_progress["message"] = "All migration stages completed"
+                        terminal_progress.update({"percent": 100, "stage": "completed", "message": "All migration stages completed"})
                     st.session_state.last_progress = terminal_progress
                     render_live_plan(terminal_progress)
                     if st.session_state.active_migration_name and completed_payload.get("release_ready", True):
                         try:
                             data = client.download_migration(st.session_state.active_migration_name)
-                            st.download_button(
-                                "Download converted project",
-                                data=data,
-                                file_name=f"{st.session_state.active_migration_name}.zip",
-                                mime="application/zip",
-                                width='stretch',
-                            )
+                            st.download_button("Download release artifact", data=data, file_name=f"{st.session_state.active_migration_name}.zip", mime="application/zip", width="stretch")
                         except ApiError:
                             st.caption("Download will be available shortly.")
+                    st.info("Next: open Architecture & Analysis or Semantic Verification to inspect release evidence.")
                 elif badge_class == "failed":
                     raw_failed = status.get("result")
                     failed_payload = {}
@@ -566,7 +502,6 @@ if active_section == "New Migration":
                                 failed_payload = parsed_failed
                         except Exception:
                             pass
-                    release_ready = bool(failed_payload.get("release_ready"))
                     output_message = failed_payload.get("message") or status.get("error") or "Migration did not pass the release gate."
                     terminal_progress = st.session_state.get("last_progress") or {"stage": "workflow", "percent": 0, "message": "Migration stopped"}
                     if failed_payload.get("plan"):
@@ -580,21 +515,14 @@ if active_section == "New Migration":
                         if st.session_state.active_migration_name:
                             try:
                                 data = client.download_migration(st.session_state.active_migration_name)
-                                st.download_button(
-                                    "Download converted project",
-                                    data=data,
-                                    file_name=f"{st.session_state.active_migration_name}.zip",
-                                    mime="application/zip",
-                                    width='stretch',
-                                    key="blocked_demo_download",
-                                )
+                                st.download_button("Download gated artifact", data=data, file_name=f"{st.session_state.active_migration_name}.zip", mime="application/zip", width="stretch", key="blocked_demo_download")
                             except ApiError:
                                 st.caption("Download will be available shortly.")
                     else:
                         st.error(f"Migration failed: {output_message}")
 
                 if status.get("result"):
-                    with st.expander("Result details"):
+                    with st.expander("Workflow payload", expanded=False):
                         st.write(status["result"])
 
             if auto_refresh and badge_class == "running":
