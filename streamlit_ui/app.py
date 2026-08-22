@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import html
 import time
 import uuid
 from pathlib import Path
@@ -157,6 +158,156 @@ def typewriter(text: str, speed: float = 0.012):
         placeholder.markdown(f'<div class="glass-card">{shown}▌</div>', unsafe_allow_html=True)
         time.sleep(speed)
     placeholder.markdown(f'<div class="glass-card fade-in">{text}</div>', unsafe_allow_html=True)
+
+
+def _as_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _release_readiness(migration_name: str, completed_payload: dict) -> dict:
+    """Build a factual release-readiness summary from persisted backend evidence."""
+    cache_key = f"release_readiness::{migration_name}"
+    cached = st.session_state.get(cache_key)
+    if isinstance(cached, dict):
+        return cached
+    result = {
+        "release_gate": bool(completed_payload.get("release_ready", False)),
+        "semantic_status": "not_available",
+        "security_status": "not_available",
+        "security_critical": 0,
+        "verification_score": None,
+        "confidence": "Review",
+    }
+    try:
+        semantic = client.semantic_verification(migration_name).get("data", {})
+        result["semantic_status"] = str(semantic.get("status", "not_available"))
+        result["verification_score"] = semantic.get("score")
+    except ApiError:
+        pass
+    try:
+        evidence = client.migration_evidence(migration_name).get("data", {})
+        security = evidence.get("security_review", {}) or {}
+        result["security_status"] = str(security.get("status", "not_available"))
+        result["security_critical"] = int(security.get("critical", 0) or 0)
+    except (ApiError, TypeError, ValueError):
+        pass
+
+    if (
+        result["release_gate"]
+        and result["semantic_status"] == "verified"
+        and result["security_status"] == "passed"
+        and result["security_critical"] == 0
+    ):
+        result["confidence"] = "High"
+    elif result["semantic_status"] in {"verified", "partial"} and result["security_status"] in {"passed", "review"}:
+        result["confidence"] = "Moderate"
+    st.session_state[cache_key] = result
+    return result
+
+
+def render_release_readiness(migration_name: str, completed_payload: dict) -> None:
+    """Render a compact, data-backed release readiness card."""
+    readiness = _release_readiness(migration_name, completed_payload)
+    gate_label = "PASS" if readiness["release_gate"] else "BLOCKED"
+    gate_icon = "✓" if readiness["release_gate"] else "!"
+    st.markdown(
+        '<div class="release-grid">'
+        f'<div class="release-card"><div class="release-label">Release readiness</div>'
+        f'<div style="display:flex;align-items:center;justify-content:space-between;gap:.8rem;margin:.2rem 0 .45rem">'
+        f'<div class="release-score">{readiness["confidence"]}</div>'
+        f'<div class="release-status">{gate_icon} Release gate · {gate_label}</div></div>'
+        f'<div class="change-copy">Semantic verification: <b>{readiness["semantic_status"].replace("_", " ").title()}</b> · Security review: <b>{readiness["security_status"].replace("_", " ").title()}</b></div></div>'
+        f'<div class="release-card"><div class="release-label">Evidence snapshot</div>'
+        f'<div class="delta-row"><span class="delta-label">Verification score</span><span class="delta-value">{readiness["verification_score"] if readiness["verification_score"] is not None else "—"}</span></div>'
+        f'<div class="delta-row"><span class="delta-label">Critical security findings</span><span class="delta-value">{readiness["security_critical"]}</span></div>'
+        f'<div class="delta-row"><span class="delta-label">Next action</span><span class="delta-value">{"Review & release" if readiness["release_gate"] else "Resolve release blockers"}</span></div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_change_explorer(migration_name: str) -> None:
+    """Show a before/after modernization snapshot using real comparison-report data."""
+    cache_key = f"change_report::{migration_name}"
+    report = st.session_state.get(cache_key)
+    if not isinstance(report, dict):
+        try:
+            report = client.report(migration_name, persist=False, include_markdown=False, require_migrated=True)
+            st.session_state[cache_key] = report
+        except ApiError:
+            st.info("Comparison evidence becomes available after the migration report is ready.")
+            return
+
+    if report.get("status") != "ready":
+        st.info(report.get("message", "Comparison report is not ready yet."))
+        return
+
+    cards = report.get("module_review_cards") or []
+    mode = report.get("analysis_mode", "unknown")
+    st.markdown('<div class="panel-kicker">CODE CHANGE EXPLORER</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-title">Before → after modernization snapshot</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-subtitle">A concise comparison built from the persisted migration report — no simulated diff counts.</div>', unsafe_allow_html=True)
+
+    if mode == "source_vs_migrated":
+        total_files = 0
+        total_functions_delta = 0
+        total_loc_delta = 0
+        total_dep_delta = 0
+        measurable = 0
+        for card in cards:
+            delta = card.get("what_changed", {}).get("semantic_delta", {}) or {}
+            if delta.get("function_delta") is not None:
+                total_functions_delta += int(delta.get("function_delta") or 0)
+                total_loc_delta += int(delta.get("loc_delta") or 0)
+                total_dep_delta += int(delta.get("dependency_delta") or 0)
+                measurable += 1
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Modules compared", len(cards))
+        m2.metric("Function delta", f"{total_functions_delta:+d}" if measurable else "—")
+        m3.metric("LOC delta", f"{total_loc_delta:+d}" if measurable else "—")
+        m4.metric("Dependency delta", f"{total_dep_delta:+d}" if measurable else "—")
+
+        preview = cards[:3]
+        for card in preview:
+            change = card.get("what_changed", {}) or {}
+            delta = change.get("semantic_delta", {}) or {}
+            module = card.get("module", "module")
+            pattern = change.get("legacy_to_modern_pattern", "Comparison available")
+            left_copy = f"Legacy pattern: {pattern}"
+            right_copy = "; ".join(change.get("key_transformations", [])[:2]) or "Modernized structure recorded in the migration report."
+            st.markdown(
+                '<div class="change-grid">'
+                f'<div class="change-card before"><div class="change-title">Before · {html.escape(str(module))}</div><div class="change-copy">{html.escape(str(left_copy))}</div></div>'
+                f'<div class="change-card after"><div class="change-title">After · {html.escape(str(module))}</div><div class="change-copy">{html.escape(str(right_copy))}</div>'
+                f'<div class="delta-row"><span class="delta-label">Functions</span><span class="delta-value">{delta.get("function_delta", "—")}</span></div>'
+                f'<div class="delta-row"><span class="delta-label">LOC</span><span class="delta-value">{delta.get("loc_delta", "—")}</span></div>'
+                f'<div class="delta-row"><span class="delta-label">Dependencies</span><span class="delta-value">{delta.get("dependency_delta", "—")}</span></div></div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        # Migrated-only mode: be explicit rather than pretending to have a source diff.
+        st.warning("Source baseline comparison is not available for this migration, so the explorer is showing migrated-code evidence only.")
+        for card in cards[:4]:
+            st.markdown(
+                f'<div class="change-card after"><div class="change-title">{html.escape(str(card.get("module", "module")))}</div>'
+                f'<div class="change-copy">{html.escape(str(card.get("reason", "Review the module-level risk profile.")))}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+
+def render_codebase_answer(migration_name: str, answer: dict, is_target: bool) -> None:
+    """Render an answer with lightweight evidence metadata, not hidden reasoning."""
+    route = "Target code" if is_target else "Source code"
+    st.markdown(
+        f'<div class="release-status">⌁ Route · {route}</div>',
+        unsafe_allow_html=True,
+    )
+    typewriter(answer.get("answer", ""))
+    st.caption("Evidence is grounded in the selected migration knowledge base; internal reasoning is not exposed.")
 
 
 # The backend now streams Agno Workflow step events into the task status API.
@@ -398,6 +549,8 @@ if active_section == "New Migration":
                     st.session_state.active_migration_name = migration_name
                     st.session_state.active_task_started_at = time.time()
                     st.session_state.completion_toast_shown = False
+                    st.session_state.pop(f"release_readiness::{migration_name}", None)
+                    st.session_state.pop(f"change_report::{migration_name}", None)
                     st.session_state.last_progress = {"stage": "workflow", "percent": 2, "message": "Preparing workflow telemetry"}
                     st.toast(f"Migration '{migration_name}' queued")
                     st.success(f"Migration queued · `{result['task_id']}`")
@@ -491,7 +644,10 @@ if active_section == "New Migration":
                             st.download_button("Download release artifact", data=data, file_name=f"{st.session_state.active_migration_name}.zip", mime="application/zip", width="stretch")
                         except ApiError:
                             st.caption("Download will be available shortly.")
-                    st.info("Next: open Architecture & Analysis or Semantic Verification to inspect release evidence.")
+                    if st.session_state.active_migration_name:
+                        render_release_readiness(st.session_state.active_migration_name, completed_payload)
+                        render_change_explorer(st.session_state.active_migration_name)
+                    st.info("Next: inspect Architecture & Analysis, Semantic Verification, or Ask the Codebase.")
                 elif badge_class == "failed":
                     raw_failed = status.get("result")
                     failed_payload = {}
@@ -767,28 +923,48 @@ if active_section == "Semantic Verification":
         st.caption("Complete a migration, then enter its name here to inspect semantic verification evidence.")
 
 # --------------------------------------------------------------------------
-# Tab: Chat
+# Tab: Ask the Codebase
 # --------------------------------------------------------------------------
 if active_section == "Ask the Codebase":
-    st.markdown("#### Ask questions about a migrated codebase")
-    chat_migration = st.text_input(
-        "Migration name", value=st.session_state.active_migration_name or ""
-    )
-    question = st.text_area("Your question", placeholder="What does the payment module do?")
-    is_target = st.checkbox("Ask about the target (converted) code instead of source")
+    st.markdown('<div class="panel-kicker">CODE INTELLIGENCE</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-title">Ask the codebase why the migration looks the way it does.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-subtitle">Use the persisted migration knowledge base to inspect source or target behavior without exposing internal agent reasoning.</div>', unsafe_allow_html=True)
 
-    if st.button("Ask", type="primary"):
-        if not chat_migration or not question:
+    chat_migration = st.text_input(
+        "Migration name", value=st.session_state.active_migration_name or "", key="analysis_chat_migration"
+    )
+    is_target = st.checkbox("Ask about the target (converted) code", value=False)
+
+    st.markdown('<div style="margin:.65rem 0 .35rem"><span class="release-label">Suggested questions</span></div>', unsafe_allow_html=True)
+    prompt_cols = st.columns(3)
+    prompts = [
+        "What changed in the authentication flow?",
+        "Which modules need the most review?",
+        "How did the REST contract map to the target?",
+    ]
+    selected_prompt = None
+    for idx, (col, prompt) in enumerate(zip(prompt_cols, prompts)):
+        if col.button(prompt, key=f"prompt_{idx}", width="stretch"):
+            selected_prompt = prompt
+    question = st.text_area(
+        "Your question",
+        value=selected_prompt or "",
+        placeholder="e.g. Why was the payment service split during migration?",
+        height=110,
+    )
+
+    if st.button("Ask the codebase", type="primary", width="stretch"):
+        if not chat_migration or not question.strip():
             st.warning("Enter a migration name and a question.")
         else:
             thinking_slot = st.empty()
             with thinking_slot:
                 if not try_lottie(THINKING_LOTTIE_URL, height=120):
-                    st.spinner("Thinking...")
+                    st.spinner("Searching migration evidence...")
             try:
-                answer = client.chat_ask(chat_migration, question, is_target=is_target)
+                answer = client.chat_ask(chat_migration, question.strip(), is_target=is_target)
                 thinking_slot.empty()
-                typewriter(answer["answer"])
+                render_codebase_answer(chat_migration, answer, is_target)
             except ApiError as e:
                 thinking_slot.empty()
                 st.error(e.detail)
