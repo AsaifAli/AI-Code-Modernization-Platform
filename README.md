@@ -1,167 +1,109 @@
 # LegacyLens — Agentic Software Modernization
 
-> **Agentic legacy-code migration with program analysis, dependency intelligence, Qdrant-backed retrieval, migration planning, and post-migration QA.**
+> **Agentic legacy-code migration with program analysis, dependency intelligence, Qdrant-backed retrieval, migration planning, context-grounded conversion, and post-migration release gates.**
 
 LegacyLens analyzes a legacy repository, builds a structured representation of its codebase, creates a migration plan, performs context-grounded code transformation, and evaluates the resulting target project with deterministic engineering checks.
 
-The design deliberately combines **deterministic program analysis** with **probabilistic LLM reasoning** instead of sending an entire repository to a model in one prompt.
+## What changed in the portfolio-ready release
 
-## Live deployment
+### Developer workbench UI
 
-**UI:** https://ai-code-modernization-ui.onrender.com
+LegacyLens is intentionally presented as a **developer migration workbench**, not a generic dashboard:
 
-**API:** https://ai-code-modernization-api.onrender.com
+- Migration-oriented workspace and live workflow stages
+- Before/after change exploration
+- Release-readiness presentation
+- Ask-the-codebase workspace
+- Persistent migration/task context
+- Hosted-safe Streamlit sidebar collapse/reopen behavior
+- System-adaptive light/dark theme with live switching
+- Failure states expose a downloadable failure report instead of leaving the user at a dead end
 
-**Deployment:** Render Blueprint (Streamlit UI + FastAPI API)
+### Live migration telemetry
 
-## Why this project is interesting
-
-A naive modernization system looks like:
-
-```text
-Legacy repository → LLM → generated repository
-```
-
-That approach breaks down on real repositories because of context limits, missing dependencies, inconsistent transformations, hallucinated APIs, and weak validation.
-
-LegacyLens uses a hybrid workflow:
+The task lifecycle is explicitly bound to its backend task ID so workflow progress events can update the task being polled by the UI.
 
 ```text
-Repository
-    ↓
-Program Analysis ── AST / CTags / dependency graph / technology detection
-    ↓
-Knowledge Base ─── Qdrant + metadata-aware retrieval
-    ↓
-Migration Planning ── target architecture + file/symbol mapping
-    ↓
-Agentic Conversion ── context-grounded transformations
-    ↓
-Post-Migration QA ── structural + execution-aware validation
-    ↓
-Migration Report / Release Gate
+Migration request
+      ↓
+Task created + bound
+      ↓
+Scanner / planning / conversion progress
+      ↓
+Task status endpoint
+      ↓
+Live migration workspace
 ```
 
-## Key engineering decisions
+### Reliability / release behavior
 
-- **Deterministic analysis before generation:** AST, symbols, dependencies, and technology signals ground the agents.
-- **Bounded retrieval instead of giant prompts:** analysis artifacts are stored remotely and retrieved selectively.
-- **Qdrant Cloud instead of an embedded vector database:** hosted retrieval avoids local database/model baggage in the Render deployment path.
-- **Planning before conversion:** target structure and symbol mappings are established before generation.
-- **Language-agnostic validation:** execution contracts and toolchain validation are resolved through language/target adapters rather than hard-coded Java/Python rules.
-- **QA after generation:** conversion is treated as an engineering workflow with measurable structural and executable checks.
+The migration platform now has stronger failure handling around the hosted LLM gateway and artifact generation:
+
+- Gateway rate-limit failures are surfaced as real migration failures rather than fabricated code.
+- Invalid/empty model output is rejected instead of being treated as generated source.
+- Directory-like output paths are normalized defensively.
+- Release readiness is derived from the post-migration quality gate.
+- A blocked/failed migration can still produce a clearly labeled failure report when no valid migration artifact exists.
+- Hosted execution can use lightweight workflow settings to reduce unnecessary agent-event retention.
 
 ## Architecture
 
 ```text
-                    ┌──────────────────────┐
-                    │     Streamlit UI      │
-                    │ upload / progress /   │
-                    │ reports / chat        │
-                    └──────────┬───────────┘
-                               │ HTTP
-                               ▼
-                    ┌──────────────────────┐
-                    │       FastAPI         │
-                    │ API + task lifecycle  │
-                    └──────────┬───────────┘
-                               │
-                               ▼
-                    ┌──────────────────────┐
-                    │ Workflow Orchestrator │
-                    └──────────┬───────────┘
-                               │
-          ┌────────────────────┼────────────────────┐
-          ▼                    ▼                    ▼
-     Repository            Qdrant Cloud          Planning
-     Scanner               Knowledge Base        Agent
-          │                    │                    │
-      AST / CTags        dense + sparse       mappings / goals
-      dependencies       metadata filters     target structure
-          └────────────────────┼────────────────────┘
-                               ▼
-                        Conversion Agents
-                               │
-                               ▼
-                         Target Repository
-                               │
-                               ▼
-                       Post-Migration QA
-                               │
-                         Release Gate
+Legacy Repository
+       ↓
+Program Analysis
+  AST / CTags / dependencies / stack detection
+       ↓
+Knowledge Base
+  Qdrant + metadata-aware retrieval
+       ↓
+Migration Planning
+  target architecture + symbol/file mapping
+       ↓
+Agentic Conversion
+  context-grounded transformations
+       ↓
+Post-Migration QA
+  structural + executable validation
+       ↓
+Release Gate
+  ready / blocked / review
+       ↓
+Migration artifact or failure report
 ```
 
 ## Core capabilities
-
-### Repository intelligence
 
 - Multi-language source scanning
 - AST / tree-sitter analysis
 - Universal CTags symbol extraction
 - File and symbol dependency analysis
-- Technology and framework detection
-- Complexity and structural signals
+- Technology/framework detection
+- Qdrant-backed analysis retrieval
+- Planning before conversion
+- Agentic code transformation
+- Deterministic post-migration QA
+- Release gates and repair loops
+- Evidence-backed migration reports
+- Ask-the-codebase retrieval over migration artifacts
 
-### Knowledge engineering
+## BYOK / shared LLM Gateway
 
-- Lossless analysis-artifact chunking
-- Metadata-aware retrieval
-- Source/target context separation
-- Qdrant Cloud vector storage
-- Hosted dense and sparse embedding inference
-- Token-bounded context construction
-
-### Agentic migration workflow
-
-- Scanner agent
-- Knowledge-base agent
-- Migration planning agent
-- Conversion agent
-- Post-migration analysis
-- Conversational access to migration artifacts
-
-### Migration QA + Release Engineering
-
-The target repository enters a deterministic engineering gate after generation:
-
-```text
-Generated Target
-      ↓
-Stack / toolchain detection
-      ├── lint / format / syntax
-      ├── type checks where available
-      ├── dependency install when supported
-      ├── unit tests
-      └── build / compile / execution checks
-      ↓
-Failure?
-  ├── No  → Release Gate → package
-  └── Yes → bounded repair loop → re-run gates
-```
-
-Execution-contract handling and target-toolchain validation are language-agnostic. A target adapter determines the appropriate entry-point and validation strategy for the detected ecosystem.
-
-A green gate means the generated project passed the configured executable checks for its detected ecosystem; it is **not** a mathematical proof of semantic equivalence.
-
-## BYOK / LLM integration
-
-LegacyLens uses the shared Portfolio LLM Gateway for portfolio sessions.
+LegacyLens uses the portfolio's shared LLM Gateway for request-scoped inference sessions.
 
 ```text
 Portfolio BYOK
       ↓
-Redis-backed session
-      ↓
-Short-lived JWT
+Short-lived gateway session
       ↓
 LegacyLens
       ↓
 Portfolio LLM Gateway
       ↓
-User-selected provider/model
+Selected provider / model
 ```
 
-The application receives a temporary gateway session token. Provider API keys remain server-side.
+Provider credentials remain outside the project frontend/source repository.
 
 ## Local development
 
@@ -170,8 +112,6 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Typical local endpoints are exposed by the compose configuration for the UI, API, and Swagger interface.
-
 ## Testing
 
 ```bash
@@ -179,20 +119,10 @@ python -m pytest -q
 python portfolio_quality/quality_gate.py .
 ```
 
-## Security posture
-
-- `.env` is ignored and credentials are environment-driven.
-- Provider keys are not embedded in source code.
-- Runtime/generated directories are ignored.
-- Validation commands are allow-listed rather than arbitrary model-generated shell commands.
-- External-impact actions are bounded by the workflow design.
-
 ## Limitations
 
-LegacyLens is a portfolio and engineering demonstration, not a turnkey enterprise migration service. Semantic equivalence remains difficult to prove automatically, so the system exposes structural signals, execution checks, and review-oriented risk instead of pretending an LLM confidence score proves correctness.
+LegacyLens is a portfolio and engineering demonstration, not a turnkey enterprise migration service. Semantic equivalence remains difficult to prove automatically, so the system exposes structural signals, executable checks, release gates, and review-oriented evidence rather than pretending an LLM confidence score proves correctness.
 
-Future production work includes durable worker queues, checkpointed execution, stronger multi-user authorization, deeper language-specific adapters, distributed tracing, and larger benchmark corpora.
+## Portfolio positioning
 
-## License
-
-MIT License.
+**Developer modernization workbench** — program analysis, retrieval-grounded planning, agentic conversion, executable validation, and release-aware migration workflows.
