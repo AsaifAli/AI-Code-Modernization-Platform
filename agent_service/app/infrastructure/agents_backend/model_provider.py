@@ -1,6 +1,5 @@
 import os
 import logging
-from contextvars import ContextVar
 from dotenv import load_dotenv
 
 from agno.models.ollama import Ollama
@@ -21,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 # Environment Variables
 # --------------------------------------------------
 MODEL_TYPE = os.getenv("MODEL_TYPE", "OpenAI")
-OPENAI_MODEL_ID = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL_ID", "gpt-4o")
+OPENAI_MODEL_ID = os.getenv("OPENAI_MODEL_ID", "gemini-2.5-flash")
 OPENAI_BASE_URL = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
 LLM_GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "https://portfolio-llm-gateway.onrender.com/v1").strip()
 LLM_GATEWAY_TIMEOUT = float(os.getenv("LLM_GATEWAY_TIMEOUT", "180"))
@@ -31,6 +30,9 @@ LLM_GATEWAY_MAX_RETRIES = max(0, int(os.getenv("LLM_GATEWAY_MAX_RETRIES", "2")))
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL")
 VLLM_CHAT_MODEL_ID = os.getenv("VLLM_CHAT_MODEL_ID")
 VLLM_API_KEY = os.getenv("VLLM_API_KEY") or "local"
+DIRECT_PROVIDER = os.getenv("LLM_DIRECT_PROVIDER", "google").strip().lower()
+GOOGLE_OPENAI_BASE_URL = os.getenv("GOOGLE_OPENAI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/").strip()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
 # --------------------------------------------------
 # Message Normalization (vLLM compatibility)
 # --------------------------------------------------
@@ -81,21 +83,6 @@ class GatewayAwareOpenAIChat(OpenAIChat):
     environment variables or a shared cached client.
     """
 
-    # Many OpenAI-compatible gateways/providers expect the canonical Chat
-    # Completions role names. Current Agno OpenAIChat defaults may map
-    # system -> developer; keep the portfolio gateway on system for maximum
-    # OpenAI-compatible interoperability.
-    default_role_map = {
-        "system": "system",
-        "user": "user",
-        "assistant": "assistant",
-        "tool": "tool",
-        "model": "assistant",
-    }
-
-    _sync_clients: ContextVar[dict[str, OpenAI]] = ContextVar("legacy_lens_gateway_sync_clients", default={})
-    _async_clients: ContextVar[dict[str, AsyncOpenAI]] = ContextVar("legacy_lens_gateway_async_clients", default={})
-
     def _gateway_config(self):
         token = get_llm_gateway_token().strip()
         gateway_url = LLM_GATEWAY_URL.strip()
@@ -108,27 +95,39 @@ class GatewayAwareOpenAIChat(OpenAIChat):
         if token:
             if not gateway_url:
                 raise RuntimeError("LLM gateway token present but LLM_GATEWAY_URL is not configured")
-            cache = self._sync_clients.get().copy()
-            cache_key = f"{gateway_url}|{token}|{self.id}"
-            client = cache.get(cache_key)
-            if client is None:
-                logger.info(
-                    "Using request-scoped Portfolio LLM Gateway for model=%s base_url=%s",
-                    self.id,
-                    gateway_url,
+            logger.info(
+                "Using request-scoped Portfolio LLM Gateway for model=%s base_url=%s",
+                self.id,
+                gateway_url,
+            )
+            return OpenAI(
+                api_key=token,
+                base_url=gateway_url,
+                timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
+                max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
+                default_headers=self.default_headers,
+                default_query=self.default_query,
+            )
+        # Standalone LegacyLens deployments do not have a portfolio session token.
+        # Use a remote OpenAI-compatible free-tier provider instead of silently
+        # falling through to an unauthenticated OpenRouter endpoint.
+        if DIRECT_PROVIDER == "google":
+            if not GOOGLE_API_KEY:
+                raise RuntimeError(
+                    "No LLM gateway session token and GOOGLE_API_KEY is not configured for direct Gemini fallback"
                 )
-                retries = LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries)
-                client = OpenAI(
-                    api_key=token,
-                    base_url=gateway_url,
-                    timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
-                    max_retries=retries,
-                    default_headers=self.default_headers,
-                    default_query=self.default_query,
-                )
-                cache[cache_key] = client
-                self._sync_clients.set(cache)
-            return client
+            logger.info(
+                "No gateway token; using direct Google Gemini OpenAI-compatible endpoint for model=%s",
+                self.id,
+            )
+            return OpenAI(
+                api_key=GOOGLE_API_KEY,
+                base_url=GOOGLE_OPENAI_BASE_URL,
+                timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
+                max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
+                default_headers=self.default_headers,
+                default_query=self.default_query,
+            )
         return super().get_client()
 
     def get_async_client(self):
@@ -136,27 +135,36 @@ class GatewayAwareOpenAIChat(OpenAIChat):
         if token:
             if not gateway_url:
                 raise RuntimeError("LLM gateway token present but LLM_GATEWAY_URL is not configured")
-            cache = self._async_clients.get().copy()
-            cache_key = f"{gateway_url}|{token}|{self.id}"
-            client = cache.get(cache_key)
-            if client is None:
-                logger.info(
-                    "Using request-scoped Portfolio LLM Gateway (async) for model=%s base_url=%s",
-                    self.id,
-                    gateway_url,
+            logger.info(
+                "Using request-scoped Portfolio LLM Gateway (async) for model=%s base_url=%s",
+                self.id,
+                gateway_url,
+            )
+            return AsyncOpenAI(
+                api_key=token,
+                base_url=gateway_url,
+                timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
+                max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
+                default_headers=self.default_headers,
+                default_query=self.default_query,
+            )
+        if DIRECT_PROVIDER == "google":
+            if not GOOGLE_API_KEY:
+                raise RuntimeError(
+                    "No LLM gateway session token and GOOGLE_API_KEY is not configured for direct Gemini fallback"
                 )
-                retries = LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries)
-                client = AsyncOpenAI(
-                    api_key=token,
-                    base_url=gateway_url,
-                    timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
-                    max_retries=retries,
-                    default_headers=self.default_headers,
-                    default_query=self.default_query,
-                )
-                cache[cache_key] = client
-                self._async_clients.set(cache)
-            return client
+            logger.info(
+                "No gateway token; using direct Google Gemini OpenAI-compatible endpoint (async) for model=%s",
+                self.id,
+            )
+            return AsyncOpenAI(
+                api_key=GOOGLE_API_KEY,
+                base_url=GOOGLE_OPENAI_BASE_URL,
+                timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
+                max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
+                default_headers=self.default_headers,
+                default_query=self.default_query,
+            )
         return super().get_async_client()
 
 
@@ -172,13 +180,6 @@ def create_model():
             api_key=os.getenv("OPENAI_API_KEY"),
             base_url=OPENAI_BASE_URL,
             temperature=0.1,
-            role_map={
-                "system": "system",
-                "user": "user",
-                "assistant": "assistant",
-                "tool": "tool",
-                "model": "assistant",
-            },
         )
         logger.info("Using OpenAI-compatible model with request-scoped gateway support")
     elif MODEL_TYPE == "VLLM":

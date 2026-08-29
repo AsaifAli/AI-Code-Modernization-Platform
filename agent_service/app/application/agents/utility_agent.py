@@ -216,6 +216,39 @@ def _apply_defaults(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+
+
+def _deterministic_target_hints(description: str) -> Dict[str, Any]:
+    """Extract explicit target-language/framework hints before invoking an LLM.
+
+    This prevents a provider failure from silently changing an explicit request
+    such as "convert Python to Java" into the default Python target.
+    """
+    text = str(description or "").strip().lower()
+    hints: Dict[str, Any] = {}
+
+    language_aliases = {
+        "python": "python", "py": "python", "javascript": "javascript",
+        "js": "javascript", "typescript": "typescript", "ts": "typescript",
+        "java": "java", "c#": "c#", "csharp": "c#", "go": "go",
+        "golang": "go", "php": "php", "ruby": "ruby", "rust": "rust",
+        "c++": "c++", "cpp": "c++",
+    }
+    m = re.search(r"\b(?:to|into|target)\s+(python|py|javascript|js|typescript|ts|java|c#|csharp|go|golang|php|ruby|rust|c\+\+)\b", text)
+    if m:
+        hints["target_language"] = language_aliases[m.group(1)]
+
+    framework_aliases = (
+        "spring boot", "fastapi", "django", "flask", "express", "nestjs",
+        "laravel", "gin", "playwright", "pytest", "jest", "mocha", "google test", "gtest",
+    )
+    for framework in framework_aliases:
+        if framework in text:
+            hints["target_framework"] = framework
+            break
+
+    return hints
+
 def detect_target_stack_from_description(description: str) -> Dict[str, Any]:
     """
     Infer migration target stack from free-form description using the LLM.
@@ -223,6 +256,8 @@ def detect_target_stack_from_description(description: str) -> Dict[str, Any]:
     """
     if not description or not str(description).strip():
         return dict(_FALLBACK_STACK)
+
+    deterministic_hints = _deterministic_target_hints(description)
 
     original_instructions = getattr(utility_agent, "instructions", None)
     try:
@@ -236,14 +271,19 @@ def detect_target_stack_from_description(description: str) -> Dict[str, Any]:
         payload = _extract_first_json_object(raw)
 
         if not payload:
-            logger.warning("LLM returned no parseable JSON for stack detection; using defaults.")
-            return dict(_FALLBACK_STACK)
+            logger.warning("LLM returned no parseable JSON for stack detection; using deterministic hints/defaults.")
+            merged = dict(_FALLBACK_STACK)
+            merged.update(deterministic_hints)
+            return _apply_defaults(merged)
 
+        payload.update(deterministic_hints)
         return _apply_defaults(payload)
 
     except Exception as exc:
-        logger.warning("Stack detection LLM call failed (%s); using defaults.", exc)
-        return dict(_FALLBACK_STACK)
+        logger.warning("Stack detection LLM call failed (%s); using deterministic hints/defaults.", exc)
+        merged = dict(_FALLBACK_STACK)
+        merged.update(deterministic_hints)
+        return _apply_defaults(merged)
     finally:
         if original_instructions is not None:
             utility_agent.instructions = original_instructions
