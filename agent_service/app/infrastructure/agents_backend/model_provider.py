@@ -1,5 +1,6 @@
 import os
 import logging
+from contextvars import ContextVar
 from dotenv import load_dotenv
 
 from agno.models.ollama import Ollama
@@ -26,7 +27,7 @@ LLM_GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "https://portfolio-llm-gateway.on
 LLM_GATEWAY_TIMEOUT = float(os.getenv("LLM_GATEWAY_TIMEOUT", "180"))
 # Demo/portfolio gateways commonly rate-limit bursts. Avoid immediate SDK retries
 # that amplify a 429; make the value configurable for production.
-LLM_GATEWAY_MAX_RETRIES = max(0, int(os.getenv("LLM_GATEWAY_MAX_RETRIES", "0")))
+LLM_GATEWAY_MAX_RETRIES = max(0, int(os.getenv("LLM_GATEWAY_MAX_RETRIES", "2")))
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL")
 VLLM_CHAT_MODEL_ID = os.getenv("VLLM_CHAT_MODEL_ID")
 VLLM_API_KEY = os.getenv("VLLM_API_KEY") or "local"
@@ -80,6 +81,21 @@ class GatewayAwareOpenAIChat(OpenAIChat):
     environment variables or a shared cached client.
     """
 
+    # Many OpenAI-compatible gateways/providers expect the canonical Chat
+    # Completions role names. Current Agno OpenAIChat defaults may map
+    # system -> developer; keep the portfolio gateway on system for maximum
+    # OpenAI-compatible interoperability.
+    default_role_map = {
+        "system": "system",
+        "user": "user",
+        "assistant": "assistant",
+        "tool": "tool",
+        "model": "assistant",
+    }
+
+    _sync_clients: ContextVar[dict[str, OpenAI]] = ContextVar("legacy_lens_gateway_sync_clients", default={})
+    _async_clients: ContextVar[dict[str, AsyncOpenAI]] = ContextVar("legacy_lens_gateway_async_clients", default={})
+
     def _gateway_config(self):
         token = get_llm_gateway_token().strip()
         gateway_url = LLM_GATEWAY_URL.strip()
@@ -92,19 +108,27 @@ class GatewayAwareOpenAIChat(OpenAIChat):
         if token:
             if not gateway_url:
                 raise RuntimeError("LLM gateway token present but LLM_GATEWAY_URL is not configured")
-            logger.info(
-                "Using request-scoped Portfolio LLM Gateway for model=%s base_url=%s",
-                self.id,
-                gateway_url,
-            )
-            return OpenAI(
-                api_key=token,
-                base_url=gateway_url,
-                timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
-                max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
-                default_headers=self.default_headers,
-                default_query=self.default_query,
-            )
+            cache = self._sync_clients.get().copy()
+            cache_key = f"{gateway_url}|{token}|{self.id}"
+            client = cache.get(cache_key)
+            if client is None:
+                logger.info(
+                    "Using request-scoped Portfolio LLM Gateway for model=%s base_url=%s",
+                    self.id,
+                    gateway_url,
+                )
+                retries = LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries)
+                client = OpenAI(
+                    api_key=token,
+                    base_url=gateway_url,
+                    timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
+                    max_retries=retries,
+                    default_headers=self.default_headers,
+                    default_query=self.default_query,
+                )
+                cache[cache_key] = client
+                self._sync_clients.set(cache)
+            return client
         return super().get_client()
 
     def get_async_client(self):
@@ -112,19 +136,27 @@ class GatewayAwareOpenAIChat(OpenAIChat):
         if token:
             if not gateway_url:
                 raise RuntimeError("LLM gateway token present but LLM_GATEWAY_URL is not configured")
-            logger.info(
-                "Using request-scoped Portfolio LLM Gateway (async) for model=%s base_url=%s",
-                self.id,
-                gateway_url,
-            )
-            return AsyncOpenAI(
-                api_key=token,
-                base_url=gateway_url,
-                timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
-                max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
-                default_headers=self.default_headers,
-                default_query=self.default_query,
-            )
+            cache = self._async_clients.get().copy()
+            cache_key = f"{gateway_url}|{token}|{self.id}"
+            client = cache.get(cache_key)
+            if client is None:
+                logger.info(
+                    "Using request-scoped Portfolio LLM Gateway (async) for model=%s base_url=%s",
+                    self.id,
+                    gateway_url,
+                )
+                retries = LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries)
+                client = AsyncOpenAI(
+                    api_key=token,
+                    base_url=gateway_url,
+                    timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
+                    max_retries=retries,
+                    default_headers=self.default_headers,
+                    default_query=self.default_query,
+                )
+                cache[cache_key] = client
+                self._async_clients.set(cache)
+            return client
         return super().get_async_client()
 
 
@@ -140,6 +172,13 @@ def create_model():
             api_key=os.getenv("OPENAI_API_KEY"),
             base_url=OPENAI_BASE_URL,
             temperature=0.1,
+            role_map={
+                "system": "system",
+                "user": "user",
+                "assistant": "assistant",
+                "tool": "tool",
+                "model": "assistant",
+            },
         )
         logger.info("Using OpenAI-compatible model with request-scoped gateway support")
     elif MODEL_TYPE == "VLLM":

@@ -179,7 +179,7 @@ async def upload_team_files(
 
 async def execute_agent_team(task_id: str, request: RunTeamRequest, owner_user_id: str, llm_gateway_token: str = ""):
     logger.info("[TASK %s] STARTED | source_path=%r owner=%r", task_id, request.source_path, owner_user_id)
-    create_task(task_id, user_id=owner_user_id, status=AgentConstants.TASK_STATUS_RUNNING)
+    update_task(task_id, status=AgentConstants.TASK_STATUS_RUNNING)
     # Connect workflow progress events to this persisted task so the UI
     # receives live updates through GET /v1/tasks/{task_id}.
     bind_task(task_id)
@@ -347,6 +347,9 @@ async def run_agent_team(
     current_user.set(user)
     task_id = str(uuid.uuid4())
     logger.info("POST /v1/teams/run | task_id=%s", task_id)
+    # Persist the task before returning 202 so an immediate UI poll cannot
+    # race the BackgroundTasks startup and receive a false 404.
+    create_task(task_id, user_id=str(user.id), status=AgentConstants.TASK_STATUS_ACCEPTED)
 
     # Stack detection uses an LLM and can take longer than the UI's request
     # timeout.  Do it inside execute_agent_team, where it belongs, after this

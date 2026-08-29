@@ -268,6 +268,8 @@ class WorkflowOrchestrator:
                 store_events=not lightweight,
             )
             final_output = None
+            completion_output = None
+            workflow_error = None
             # Only these outer workflow names may update the seven-stage UI.
             # Nested scanner/planner events must not be mistaken for later
             # stages, otherwise the progress bar and chips diverge.
@@ -296,9 +298,24 @@ class WorkflowOrchestrator:
                         continue
                     plan[idx]["status"] = "complete"
                     publish_progress("workflow", int(((idx + 1) / len(plan)) * 100), f"Completed: {step_name or plan[idx]['name']}", plan=plan)
+                elif "workflowcompleted" in event_name or "workflow_completed" in event_name:
+                    completion_output = event
+                    final_output = event
+                elif "workflowerror" in event_name or "workflow_error" in event_name:
+                    workflow_error = event
                 elif hasattr(event, "content") and getattr(event, "content", None):
                     final_output = event
-            return getattr(self.workflow, "run_response", None) or final_output
+            if workflow_error is not None and completion_output is None:
+                error_message = (
+                    getattr(workflow_error, "content", None)
+                    or getattr(workflow_error, "error", None)
+                    or "Agno workflow execution failed"
+                )
+                raise RuntimeError(str(error_message))
+            # Do not read self.workflow.run_response here: the module-level
+            # workflow object can serve concurrent requests and run_response is
+            # mutable shared state. The completed event is request-local.
+            return completion_output or final_output
 
         result = await asyncio.to_thread(_run_streaming)
         for item in plan:

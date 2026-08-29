@@ -20,6 +20,13 @@ import app.application.agents.knowledge_base.knowledge_base_agent as kb
 from app.application.agents.conversion.conversion_agent import conversion_agent
 from app.infrastructure.utils.Agent_helpers.conversion_helper import _conversion_event_helper
 from app.infrastructure.utils.language_adapters import adapter_for_file, get_adapter, ExecutionContract
+from app.infrastructure.utils.conversion_recipe_engine import (
+    RecipeContext,
+    build_conversion_rules,
+    sanitize_generated_code,
+    validate_target_fragment,
+    format_validation_feedback,
+)
 from app.domain.interfaces.i_folder_structure_goals_repository import (
     IFolderStructureGoalsRepository,
 )
@@ -272,141 +279,135 @@ def _normalize_target_file_path(target_file: str, source_file_path: str, target_
 
 
 def generate_new_code(step_input: StepInput) -> dict:
-    """Fetches meta data for a given symbol by filtering KB"""
-    # print(step_input, "+++")
-    prev_output = step_input.get_step_content("get_source_code")
-    source_code = prev_output.get("raw_code") 
-    source_file_path = prev_output.get("file_path")
-    symbol_id = prev_output.get("symbol_id")
-    symbol_hash = prev_output.get("symbol_hash")
-    workflow_input = step_input.input
+    """Generate one planned target symbol with deterministic guardrails."""
+    prev_output = step_input.get_step_content("get_source_code") or {}
+    source_code = prev_output.get("raw_code") or ""
+    source_file_path = prev_output.get("file_path") or ""
+    symbol_id = prev_output.get("symbol_id") or ""
+    symbol_hash = prev_output.get("symbol_hash") or ""
+    workflow_input = step_input.input or {}
     runtime_tech = _get_runtime_tech_context()
-    target_file_path = _normalize_target_file_path(
-        workflow_input.get("target_file"),
-        source_file_path,
-        runtime_tech.get("language", ""),
-    )
-    target_symbol_name = workflow_input.get("target_symbol_name")
-    dependencies_output =  step_input.get_step_content("get_dependencies")
-    file_deps = dependencies_output.get("file_dependencies")
-    deps = dependencies_output.get("dependent_code_snippets")
-    file_deps_content = file_deps if isinstance(file_deps, str) else "\n".join(file_deps)
-    deps_content = "\n".join(deps)
-    tech_summary = (
-        f"Target Language : {runtime_tech['language']}\n"
-        f"Framework       : {runtime_tech['framework'] or 'None'}\n"
-        f"Architecture    : {runtime_tech['architecture'] or 'Unknown'}\n"
-    )
+    target_language = runtime_tech.get("language", "") or ""
+    target_file_path = _normalize_target_file_path(workflow_input.get("target_file"), source_file_path, target_language)
+    target_symbol_name = workflow_input.get("target_symbol_name") or "migrated_symbol"
 
-    # Resolve executable behavior through the language adapter registry. The
-    # conversion engine never branches on source/target language itself.
+    dependencies_output = step_input.get_step_content("get_dependencies") or {}
+    file_deps = dependencies_output.get("file_dependencies") or []
+    deps = dependencies_output.get("dependent_code_snippets") or []
+    file_deps_content = file_deps if isinstance(file_deps, str) else "\n".join(str(x) for x in file_deps)
+    deps_content = deps if isinstance(deps, str) else "\n".join(str(x) for x in deps)
+    tech_summary = (f"Target Language : {target_language}\n" f"Framework       : {runtime_tech.get('framework') or 'None'}\n" f"Architecture    : {runtime_tech.get('architecture') or 'Unknown'}\n")
+
+    recipe_context = RecipeContext(
+        source_language=(Path(str(source_file_path)).suffix.lstrip(".") or "unknown"),
+        target_language=target_language,
+        target_framework=runtime_tech.get("framework", "") or "",
+        target_architecture=runtime_tech.get("architecture", "") or "",
+    )
+    conversion_rules = build_conversion_rules(recipe_context)
+
     execution_contract = None
     entrypoint_context = ""
     try:
         source_adapter = adapter_for_file(Path(str(source_file_path)))
         if source_adapter is not None:
-            execution_contract = source_adapter.detect_execution_contract(
-                Path(str(source_file_path)), target_symbol_name
-            )
+            execution_contract = source_adapter.detect_execution_contract(Path(str(source_file_path)), target_symbol_name)
         if execution_contract and execution_contract.executable:
-            target_adapter = get_adapter(runtime_tech.get("language", ""))
-            target_name = target_adapter.display_name if target_adapter else runtime_tech.get("language", "target")
+            target_adapter = get_adapter(target_language)
+            target_name = target_adapter.display_name if target_adapter else (target_language or "target")
             entrypoint_context = (
-                "SOURCE EXECUTION CONTRACT: the source module executes the translated "
-                f"symbol '{execution_contract.entry_symbol}'. Preserve that runtime behavior "
-                f"using the idiomatic executable entry-point convention of the target language ({target_name}). "
-                "Do not add an entry point when the source is clearly a reusable library/module."
+                "SOURCE EXECUTION CONTRACT: preserve execution of "
+                f"'{execution_contract.entry_symbol}' using the idiomatic entry-point convention "
+                f"of {target_name}. Do not add an entry point for a reusable library/module."
             )
     except Exception:
-        execution_contract = None
-        entrypoint_context = ""
+        logger.exception("Failed to determine source execution contract for %s", source_file_path)
 
     try:
         user = current_user.get()
         migration_name = migration_name_ctx.get(None)
-        if migration_name not in _conversion_step_start_sent:
-            _conversion_step_start_sent.add(migration_name)
-            _conversion_event_helper.send_step_start(
-                AgentEventMessages.MIGRATION_PROGRESS_STEP_ID,
-                AgentEventMessages.MIGRATION_PROGRESS_STEP_NAME,
-                user,
-                MigrationEvent.MIGRATION_PROGRESS,
-            )
-            _conversion_event_helper.send_step_description(
-                AgentEventMessages.MIGRATION_PROGRESS_STEP_ID,
-                AgentEventMessages.MIGRATION_PROGRESS_STEP_NAME,
-                user,
-                MigrationEvent.MIGRATION_PROGRESS,
-            )
-        _conversion_event_helper.send_step_log(
-            AgentEventMessages.MIGRATION_PROGRESS_STEP_ID,
-            f"Generating converted code for: {target_symbol_name} → {target_file_path}",
-            user,
-            MigrationEvent.MIGRATION_PROGRESS,
-        )
+        step_key = f"{getattr(user, 'id', 'unknown')}:{migration_name}"
+        if step_key not in _conversion_step_start_sent:
+            _conversion_step_start_sent.add(step_key)
+            _conversion_event_helper.send_step_start(AgentEventMessages.MIGRATION_PROGRESS_STEP_ID, AgentEventMessages.MIGRATION_PROGRESS_STEP_NAME, user, MigrationEvent.MIGRATION_PROGRESS)
+            _conversion_event_helper.send_step_description(AgentEventMessages.MIGRATION_PROGRESS_STEP_ID, AgentEventMessages.MIGRATION_PROGRESS_STEP_NAME, user, MigrationEvent.MIGRATION_PROGRESS)
+        _conversion_event_helper.send_step_log(AgentEventMessages.MIGRATION_PROGRESS_STEP_ID, f"Generating converted code for: {target_symbol_name} → {target_file_path}", user, MigrationEvent.MIGRATION_PROGRESS)
     except Exception:
         pass
 
-    resp = conversion_agent.run(input=f"""
-        Convert the given source symbol into equivalent target language code while making
-        sure any dependencies are resolved/imported correctly and any similar 
-        code snippets (if given) are used as coding/formatting guidelines.
-        SOURCE CODE: {source_code}
-        SYMBOL ID : {symbol_id}
-        SYMBOL HASH : {symbol_hash}
-        SOURCE SYMBOL FILE PATH : {source_file_path}
-        TARGET TECH SUMMARY: {tech_summary}
-        EXISTING DEPENDENCIES TO USE: {deps_content} 
-        EXISTING SIMILAR CODE SNIPPETS: []
-        PRE-APPROVED LIBRARIES (from dependency file — use these for imports, do not invent others): {file_deps_content}
-        {entrypoint_context}
-        When writing the target code, make sure to correctly use the exisisting dependencies alongwith their correct import paths/naming conventions.
-        Return just the final raw code, no extra explanations & no extra formatting such as ```python, ```, etc.  
-        """
-        )
+    prompt = f"""
+Convert the given source symbol into equivalent target-language code while resolving dependencies and preserving externally observable behavior.
 
-    raw_response = (resp.content or "").strip()
-    target_code = _extract_clean_code(raw_response)
+{conversion_rules}
+
+SOURCE CODE:
+{source_code}
+
+SYMBOL ID: {symbol_id}
+SYMBOL HASH: {symbol_hash}
+SOURCE SYMBOL FILE PATH: {source_file_path}
+TARGET FILE PATH: {target_file_path}
+TARGET SYMBOL NAME: {target_symbol_name}
+
+DEPENDENT CONVERTED CODE:
+{deps_content or 'None'}
+
+PRE-APPROVED LIBRARIES (use these for imports; do not invent replacements):
+{file_deps_content or 'None'}
+
+{entrypoint_context}
+
+Return ONLY the final raw target code. Do not include markdown fences, explanations, placeholders, TODOs, or pseudocode.
+"""
+    resp = conversion_agent.run(input=prompt)
+    raw_response = (getattr(resp, "content", "") or "").strip()
+    target_code = sanitize_generated_code(_extract_clean_code(raw_response))
     lowered = target_code.strip().lower()
-    if (
-        not target_code.strip()
-        or lowered in {"unknown model error", "model error", "rate limit error", "rate limited"}
-        or "rate limit reached" in lowered
-        or "too many requests" in lowered
-    ):
-        raise RuntimeError(
-            "LLM code generation failed before producing source code. "
-            "The LLM gateway may be rate-limited; retry after the gateway cooldown."
-        )
-    if target_code.startswith("```"):
-        target_code = target_code.split("\n", 1)[1] if "\n" in target_code else ""
-    if target_code.endswith("```"):
-        target_code = target_code.rsplit("\n", 1)[0] if "\n" in target_code else target_code[:-3]
+    if (not target_code.strip() or lowered in {"unknown model error", "model error", "rate limit error", "rate limited"} or "rate limit reached" in lowered or "too many requests" in lowered):
+        raise RuntimeError("LLM code generation failed before producing source code. The LLM gateway may be rate-limited; retry after the gateway cooldown.")
 
-    target_adapter = get_adapter(runtime_tech.get("language", ""))
+    fragment_validation = validate_target_fragment(target_code, target_language)
+    repair_attempts = max(0, int(os.getenv("CONVERSION_FRAGMENT_REPAIR_ATTEMPTS", "1")))
+    for _ in range(repair_attempts):
+        if fragment_validation.valid or not fragment_validation.available:
+            break
+        repair_prompt = f"""
+Repair ONLY the generated target-code fragment below. Do not translate it again from scratch. Preserve its intended behavior and public interface.
+Return only corrected raw target code.
+
+{conversion_rules}
+
+VALIDATION FEEDBACK:
+{format_validation_feedback(fragment_validation)}
+
+SOURCE CODE:
+{source_code}
+
+CURRENT TARGET CODE:
+{target_code}
+
+PRE-APPROVED LIBRARIES:
+{file_deps_content or 'None'}
+"""
+        repair_resp = conversion_agent.run(input=repair_prompt)
+        target_code = sanitize_generated_code(_extract_clean_code((getattr(repair_resp, "content", "") or "").strip()))
+        track_tokens(repair_resp, source="conversion:fragment_repair")
+        fragment_validation = validate_target_fragment(target_code, target_language)
+    if not fragment_validation.valid and fragment_validation.available:
+        raise RuntimeError("Generated target-code fragment failed syntax validation after " + f"{repair_attempts} repair attempt(s): {format_validation_feedback(fragment_validation)}")
+
+    target_adapter = get_adapter(target_language)
     if target_adapter is not None and execution_contract is not None:
-        target_code = target_adapter.ensure_entrypoint(
-            target_code, execution_contract, target_symbol_name
-        )
-
+        target_code = target_adapter.ensure_entrypoint(target_code, execution_contract, target_symbol_name)
     track_tokens(resp, source="conversion:symbol_convert")
 
     try:
         user = current_user.get()
-        _conversion_event_helper.send_step_result(
-            AgentEventMessages.MIGRATION_PROGRESS_STEP_ID,
-            AgentEventMessages.MIGRATION_PROGRESS_STEP_NAME,
-            f"Code generated for {target_symbol_name}",
-            user,
-            MigrationEvent.MIGRATION_PROGRESS,
-        )
+        _conversion_event_helper.send_step_result(AgentEventMessages.MIGRATION_PROGRESS_STEP_ID, AgentEventMessages.MIGRATION_PROGRESS_STEP_NAME, f"Code generated for {target_symbol_name}", user, MigrationEvent.MIGRATION_PROGRESS)
     except Exception:
         pass
     _send_plan_step_progress(4, workflow_input.get("plan_id", ""))
-    return StepOutput(content={
-        "target_code": target_code,
-        "symbol_hash": symbol_hash, 
-    })
+    return StepOutput(content={"target_code": target_code, "symbol_hash": symbol_hash, "fragment_validation": {"valid": fragment_validation.valid, "available": fragment_validation.available, "validator": fragment_validation.validator, "diagnostics": list(fragment_validation.diagnostics)}})
 
 def save_code_to_kb(step_input: StepInput) -> StepOutput:
     """Save converted code to file and KB, track part-wise completion."""

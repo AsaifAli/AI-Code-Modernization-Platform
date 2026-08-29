@@ -23,8 +23,10 @@ services:
         value: "https://portfolio-llm-gateway.onrender.com/v1"
       - key: LLM_GATEWAY_TIMEOUT
         value: "180"
-      - key: LLM_MODEL
-        value: "gemini-3.5-flash-lite"
+      - key: CONVERSION_FRAGMENT_REPAIR_ATTEMPTS
+        value: "1"
+      - key: LLM_GATEWAY_MAX_RETRIES
+        value: "2"
       - key: QDRANT_URL
         sync: false
       - key: QDRANT_API_KEY
