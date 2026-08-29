@@ -424,9 +424,15 @@ def save_code_to_kb(step_input: StepInput) -> StepOutput:
     source_symbol_name = workflow_input.get("symbol_name")
     plan_id            = workflow_input.get("plan_id")
     total_parts        = workflow_input.get("total_parts")
-    prev_output  = step_input.get_step_content("generate_new_code")
-    target_code  = prev_output.get("target_code") or ""
+    prev_output = step_input.get_step_content("generate_new_code") or {}
+    if not isinstance(prev_output, dict):
+        raise RuntimeError(
+            "Conversion output is unavailable because generate_new_code did not return a structured result."
+        )
+    target_code = prev_output.get("target_code") or ""
     source_symbol_hash = prev_output.get("symbol_hash")
+    if not isinstance(target_code, str) or not target_code.strip():
+        raise RuntimeError("Conversion produced no target code to persist.")
     # ── Write file to migration output directory ───────────────────────────
     migration_dir = get_migration_directory("", "")
     output_root = migration_dir / "Migrated Code"

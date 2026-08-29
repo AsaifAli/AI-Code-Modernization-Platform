@@ -7,8 +7,8 @@ pydantic
 pydantic-settings
 # agno framework + all model/tool backends it needs at import time
 
-agno==2.9.0
-openai>=2.49,<3
+agno
+openai
 google-genai
 ollama
 # agents, knowledge base, remote vector DB

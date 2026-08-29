@@ -144,10 +144,10 @@ def convert_workflow(step_input: StepInput) -> StepOutput:
                     failed_plan_ids.add(plan_id)
                     continue
 
-                # dependency_file and completed contribute to progress
+                # Terminal plans were already included in completed_count when
+                # progress was initialized; do not count them twice.
                 completed_plan_ids.add(plan_id)
                 skipped.append(plan_id)
-                completed_count += 1
                 continue
 
             # ── Skip if any dependency failed ─────────────────────────────
@@ -165,10 +165,24 @@ def convert_workflow(step_input: StepInput) -> StepOutput:
             # ── Convert ───────────────────────────────────────────────────
             try:
                 print(f"  ▶ Converting symbol: {symbol_id} ({plan_id})")
-                _conversion_workflow.print_response(
-                    input=symbol_plan,
-                    show_step_details=True,
-                )
+                run_output = _conversion_workflow.run(input=symbol_plan)
+
+                # Agno can be configured to skip a failed step and continue.
+                # Never infer success merely because Workflow.run() returned:
+                # inspect the real StepOutput results.
+                step_results = getattr(run_output, "step_results", None) or []
+                failures = []
+                for result in step_results:
+                    items = result if isinstance(result, list) else [result]
+                    for item in items:
+                        if getattr(item, "success", True) is False:
+                            step_name = getattr(item, "step_name", None) or "unknown-step"
+                            error = getattr(item, "error", None) or getattr(item, "content", None) or "step failed"
+                            failures.append(f"{step_name}: {error}")
+
+                if failures:
+                    raise RuntimeError("Conversion workflow failed: " + " | ".join(map(str, failures)))
+
                 results.append(plan_id)
                 completed_plan_ids.add(plan_id)
                 print(f"  ✅ Done: {symbol_id} ({plan_id})")

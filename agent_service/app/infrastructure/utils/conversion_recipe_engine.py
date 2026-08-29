@@ -63,7 +63,7 @@ def _ts_validate(code:str, language:str)->ValidationResult:
     parser=_parser(language)
     if parser is None: return ValidationResult(False,False,language,(),"tree-sitter")
     try:
-        tree=parser.parse(code)
+        tree=parser.parse(code.encode("utf-8"))
         root=tree.root_node
         if not root.has_error(): return ValidationResult(True,True,language,(),"tree-sitter")
         return ValidationResult(False,True,language,(),"tree-sitter")
