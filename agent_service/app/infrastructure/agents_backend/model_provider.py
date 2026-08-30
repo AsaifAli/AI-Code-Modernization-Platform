@@ -20,19 +20,15 @@ logging.basicConfig(level=logging.INFO)
 # Environment Variables
 # --------------------------------------------------
 MODEL_TYPE = os.getenv("MODEL_TYPE", "OpenAI")
-OPENAI_MODEL_ID = os.getenv("OPENAI_MODEL_ID", "gemini-2.5-flash")
-OPENAI_BASE_URL = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+OPENAI_MODEL_ID = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL_ID", "gateway-managed")
 LLM_GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "https://portfolio-llm-gateway.onrender.com/v1").strip()
 LLM_GATEWAY_TIMEOUT = float(os.getenv("LLM_GATEWAY_TIMEOUT", "180"))
 # Demo/portfolio gateways commonly rate-limit bursts. Avoid immediate SDK retries
 # that amplify a 429; make the value configurable for production.
-LLM_GATEWAY_MAX_RETRIES = max(0, int(os.getenv("LLM_GATEWAY_MAX_RETRIES", "2")))
+LLM_GATEWAY_MAX_RETRIES = max(0, int(os.getenv("LLM_GATEWAY_MAX_RETRIES", "0")))
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL")
 VLLM_CHAT_MODEL_ID = os.getenv("VLLM_CHAT_MODEL_ID")
 VLLM_API_KEY = os.getenv("VLLM_API_KEY") or "local"
-DIRECT_PROVIDER = os.getenv("LLM_DIRECT_PROVIDER", "google").strip().lower()
-GOOGLE_OPENAI_BASE_URL = os.getenv("GOOGLE_OPENAI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/").strip()
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
 # --------------------------------------------------
 # Message Normalization (vLLM compatibility)
 # --------------------------------------------------
@@ -92,80 +88,47 @@ class GatewayAwareOpenAIChat(OpenAIChat):
 
     def get_client(self):
         token, gateway_url = self._gateway_config()
-        if token:
-            if not gateway_url:
-                raise RuntimeError("LLM gateway token present but LLM_GATEWAY_URL is not configured")
-            logger.info(
-                "Using request-scoped Portfolio LLM Gateway for model=%s base_url=%s",
-                self.id,
-                gateway_url,
+        if not token:
+            raise RuntimeError(
+                "LLM gateway session token is required. Pass X-LLM-Gateway-Token from the portfolio session."
             )
-            return OpenAI(
-                api_key=token,
-                base_url=gateway_url,
-                timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
-                max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
-                default_headers=self.default_headers,
-                default_query=self.default_query,
-            )
-        # Standalone LegacyLens deployments do not have a portfolio session token.
-        # Use a remote OpenAI-compatible free-tier provider instead of silently
-        # falling through to an unauthenticated OpenRouter endpoint.
-        if DIRECT_PROVIDER == "google":
-            if not GOOGLE_API_KEY:
-                raise RuntimeError(
-                    "No LLM gateway session token and GOOGLE_API_KEY is not configured for direct Gemini fallback"
-                )
-            logger.info(
-                "No gateway token; using direct Google Gemini OpenAI-compatible endpoint for model=%s",
-                self.id,
-            )
-            return OpenAI(
-                api_key=GOOGLE_API_KEY,
-                base_url=GOOGLE_OPENAI_BASE_URL,
-                timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
-                max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
-                default_headers=self.default_headers,
-                default_query=self.default_query,
-            )
-        return super().get_client()
+        if not gateway_url:
+            raise RuntimeError("LLM gateway token present but LLM_GATEWAY_URL is not configured")
+        logger.info(
+            "Using request-scoped Portfolio LLM Gateway for model=%s base_url=%s",
+            self.id,
+            gateway_url,
+        )
+        return OpenAI(
+            api_key=token,
+            base_url=gateway_url,
+            timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
+            max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
+            default_headers=self.default_headers,
+            default_query=self.default_query,
+        )
 
     def get_async_client(self):
         token, gateway_url = self._gateway_config()
-        if token:
-            if not gateway_url:
-                raise RuntimeError("LLM gateway token present but LLM_GATEWAY_URL is not configured")
-            logger.info(
-                "Using request-scoped Portfolio LLM Gateway (async) for model=%s base_url=%s",
-                self.id,
-                gateway_url,
+        if not token:
+            raise RuntimeError(
+                "LLM gateway session token is required. Pass X-LLM-Gateway-Token from the portfolio session."
             )
-            return AsyncOpenAI(
-                api_key=token,
-                base_url=gateway_url,
-                timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
-                max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
-                default_headers=self.default_headers,
-                default_query=self.default_query,
-            )
-        if DIRECT_PROVIDER == "google":
-            if not GOOGLE_API_KEY:
-                raise RuntimeError(
-                    "No LLM gateway session token and GOOGLE_API_KEY is not configured for direct Gemini fallback"
-                )
-            logger.info(
-                "No gateway token; using direct Google Gemini OpenAI-compatible endpoint (async) for model=%s",
-                self.id,
-            )
-            return AsyncOpenAI(
-                api_key=GOOGLE_API_KEY,
-                base_url=GOOGLE_OPENAI_BASE_URL,
-                timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
-                max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
-                default_headers=self.default_headers,
-                default_query=self.default_query,
-            )
-        return super().get_async_client()
+        if not gateway_url:
+            raise RuntimeError("LLM gateway token present but LLM_GATEWAY_URL is not configured")
+        logger.info(
+            "Using request-scoped Portfolio LLM Gateway (async) for model=%s base_url=%s",
+            self.id,
+            gateway_url,
+        )
+        return AsyncOpenAI(
+            api_key=token,
+            base_url=gateway_url,
+            timeout=max(float(self.timeout or 0), LLM_GATEWAY_TIMEOUT),
+            max_retries=LLM_GATEWAY_MAX_RETRIES if self.max_retries in (None, 0) else int(self.max_retries),
+            default_headers=self.default_headers,
+            default_query=self.default_query,
+        )
 
 
 
@@ -177,8 +140,8 @@ def create_model():
     if MODEL_TYPE == "OpenAI":
         model = GatewayAwareOpenAIChat(
             id=OPENAI_MODEL_ID,
-            api_key=os.getenv("OPENAI_API_KEY"),
-            base_url=OPENAI_BASE_URL,
+            api_key="gateway-session",
+            base_url=LLM_GATEWAY_URL,
             temperature=0.1,
         )
         logger.info("Using OpenAI-compatible model with request-scoped gateway support")

@@ -15,16 +15,14 @@ services:
         value: "10000"
       - key: MODEL_TYPE
         value: "OpenAI"
-      - key: OPENAI_BASE_URL
-        value: "https://openrouter.ai/api/v1"
       - key: OPENAI_MODEL_ID
-        value: "openai/gpt-4o-mini"
+        value: "gateway-managed"
       - key: LLM_GATEWAY_URL
         value: "https://portfolio-llm-gateway.onrender.com/v1"
       - key: LLM_GATEWAY_TIMEOUT
         value: "180"
-      - key: LLM_MODEL
-        value: "gemini-3.5-flash-lite"
+      - key: LLM_GATEWAY_REQUIRED
+        value: "true"
       - key: QDRANT_URL
         sync: false
       - key: QDRANT_API_KEY
@@ -39,8 +37,6 @@ services:
         value: "qdrant/bm25"
       - key: QDRANT_DENSE_DIMENSIONS
         value: "384"
-      - key: OPENAI_API_KEY
-        sync: false
       - key: DATABASE_URL
         sync: false
       - key: ALLOWED_ORIGINS

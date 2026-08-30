@@ -179,7 +179,7 @@ async def upload_team_files(
 
 async def execute_agent_team(task_id: str, request: RunTeamRequest, owner_user_id: str, llm_gateway_token: str = ""):
     logger.info("[TASK %s] STARTED | source_path=%r owner=%r", task_id, request.source_path, owner_user_id)
-    update_task(task_id, status=AgentConstants.TASK_STATUS_RUNNING)
+    create_task(task_id, user_id=owner_user_id, status=AgentConstants.TASK_STATUS_RUNNING)
     # Connect workflow progress events to this persisted task so the UI
     # receives live updates through GET /v1/tasks/{task_id}.
     bind_task(task_id)
@@ -337,6 +337,21 @@ async def download_migration_v1(migration_name: str, user=Depends(get_current_us
     )
 
 
+def _require_llm_gateway_token(token: str | None) -> str:
+    """Require the portfolio-issued short-lived LLM gateway JWT."""
+    value = (token or "").strip()
+    if not value:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "LLM_GATEWAY_SESSION_REQUIRED",
+                "message": "A Portfolio LLM Gateway session token is required for AI operations.",
+                "header": "X-LLM-Gateway-Token",
+            },
+        )
+    return value
+
+
 @router.post("/v1/teams/run", response_model=TaskAcceptedResponse)
 async def run_agent_team(
     request: RunTeamRequest,
@@ -345,16 +360,14 @@ async def run_agent_team(
     user=Depends(get_current_user),
 ):
     current_user.set(user)
+    gateway_token = _require_llm_gateway_token(x_llm_gateway_token)
     task_id = str(uuid.uuid4())
     logger.info("POST /v1/teams/run | task_id=%s", task_id)
-    # Persist the task before returning 202 so an immediate UI poll cannot
-    # race the BackgroundTasks startup and receive a false 404.
-    create_task(task_id, user_id=str(user.id), status=AgentConstants.TASK_STATUS_ACCEPTED)
 
     # Stack detection uses an LLM and can take longer than the UI's request
     # timeout.  Do it inside execute_agent_team, where it belongs, after this
     # endpoint has returned a task ID.
-    background_tasks.add_task(execute_agent_team, task_id, request, str(user.id), (x_llm_gateway_token or "").strip())
+    background_tasks.add_task(execute_agent_team, task_id, request, str(user.id), gateway_token)
     return TaskAcceptedResponse(
         task_id=task_id,
         message=AgentConstants.AGENT_TEAM_EXECUTION_QUEUED,
@@ -403,6 +416,7 @@ async def health_check():
 @router.post("/v1/chat/ask", response_model=ChatAskResponse)
 async def chat_ask(
     request: ChatAskRequest,
+    x_llm_gateway_token: str | None = Header(default=None, alias="X-LLM-Gateway-Token"),
     user=Depends(get_current_user),
 ) -> ChatAskResponse:
     try:
@@ -411,6 +425,7 @@ async def chat_ask(
         except Exception:
             pass
         _set_migration_context(request.migration_name, user)
+        set_llm_gateway_token(_require_llm_gateway_token(x_llm_gateway_token))
         from app.application.agents.chat.chat_tools import ask_kb_impl
 
         ask_kb_callable = _resolve_tool_callable(ask_kb_impl)
@@ -428,6 +443,7 @@ async def chat_ask(
 @router.post("/v1/report/migration")
 async def migration_report(
     request: MigrationReportRequest,
+    x_llm_gateway_token: str | None = Header(default=None, alias="X-LLM-Gateway-Token"),
     user=Depends(get_current_user),
 ):
     try:
@@ -436,6 +452,7 @@ async def migration_report(
         except Exception:
             pass
         _set_migration_context(request.migration_name, user)
+        set_llm_gateway_token(_require_llm_gateway_token(x_llm_gateway_token))
         from app.infrastructure.utils.reporting_manager import generate_migration_comparison_report
 
         report_callable = _resolve_tool_callable(generate_migration_comparison_report)
@@ -454,6 +471,7 @@ async def migration_report(
 @router.post("/v1/showcase/migration")
 async def migration_showcase(
     request: MigrationShowcaseRequest,
+    x_llm_gateway_token: str | None = Header(default=None, alias="X-LLM-Gateway-Token"),
     user=Depends(get_current_user),
 ):
     try:
@@ -462,6 +480,7 @@ async def migration_showcase(
         except Exception:
             pass
         _set_migration_context(request.migration_name, user)
+        set_llm_gateway_token(_require_llm_gateway_token(x_llm_gateway_token))
         from app.infrastructure.utils.showcase_manager import generate_showcase_bundle
 
         showcase_callable = _resolve_tool_callable(generate_showcase_bundle)
@@ -477,6 +496,7 @@ def _run_post_migration_background(
     migrated_code_path,
     persist: bool,
     user,
+    llm_gateway_token: str = "",
 ) -> None:
     """Background task: sets context vars and runs the full post-migration workflow."""
     try:
@@ -485,6 +505,7 @@ def _run_post_migration_background(
         pass
     try:
         _set_migration_context(migration_name, user)
+        set_llm_gateway_token((llm_gateway_token or "").strip())
     except Exception:
         pass
     try:
@@ -505,18 +526,21 @@ def _run_post_migration_background(
 async def run_post_migration(
     request: PostMigrationRunRequest,
     background_tasks: BackgroundTasks,
+    x_llm_gateway_token: str | None = Header(default=None, alias="X-LLM-Gateway-Token"),
     user=Depends(get_current_user),
 ):
     try:
         current_user.set(user)
     except Exception:
         pass
+    gateway_token = _require_llm_gateway_token(x_llm_gateway_token)
     background_tasks.add_task(
         _run_post_migration_background,
         request.migration_name,
         request.migrated_code_path,
         bool(request.persist),
         user,
+        gateway_token,
     )
     return {
         "status": "accepted",
