@@ -81,7 +81,10 @@ class GatewayAwareOpenAIChat(OpenAIChat):
 
     def _gateway_config(self):
         token = get_llm_gateway_token().strip()
-        gateway_url = LLM_GATEWAY_URL.strip()
+        # Read the env var live (not the module-level snapshot) so that
+        # runtime/test-time changes to LLM_GATEWAY_URL are respected and the
+        # gateway host isn't frozen to whatever was set at import time.
+        gateway_url = os.getenv("LLM_GATEWAY_URL", "").strip()
         if gateway_url.endswith("/"):
             gateway_url = gateway_url[:-1]
         return token, gateway_url

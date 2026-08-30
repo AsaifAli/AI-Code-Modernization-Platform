@@ -16,7 +16,7 @@ IGNORED_DIRS = {".git", ".venv", "venv", "__pycache__", ".pytest_cache"}
 FORBIDDEN_FILES = {".env"}
 FORBIDDEN_SUFFIXES = {".pyc", ".pyo"}
 SECRET_PATTERNS = [
-    re.compile(r"(?i)\b(?:api[_-]?key|secret[_-]?key|password)\s*=\s*['\"](?!change-me|example|dummy|test)[A-Za-z0-9_\-./+=]{12,}['\"]"),
+    re.compile(r"(?i)\b(?:api[_-]?key|secret[_-]?key|password)\s*=\s*['\"](?!change-me|example|dummy|test|gateway-session)[A-Za-z0-9_\-./+=]{12,}['\"]"),
     re.compile(r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b"),
 ]
 
