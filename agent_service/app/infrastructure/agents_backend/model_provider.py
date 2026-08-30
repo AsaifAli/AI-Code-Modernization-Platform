@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 # Environment Variables
 # --------------------------------------------------
 MODEL_TYPE = os.getenv("MODEL_TYPE", "OpenAI")
-OPENAI_MODEL_ID = os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL_ID", "gateway-managed")
+OPENAI_MODEL_ID = os.getenv("OPENAI_MODEL_ID", "gateway-managed")
 LLM_GATEWAY_URL = os.getenv("LLM_GATEWAY_URL", "https://portfolio-llm-gateway.onrender.com/v1").strip()
 LLM_GATEWAY_TIMEOUT = float(os.getenv("LLM_GATEWAY_TIMEOUT", "180"))
 # Demo/portfolio gateways commonly rate-limit bursts. Avoid immediate SDK retries
