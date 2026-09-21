@@ -65,7 +65,12 @@ def _ts_validate(code:str, language:str)->ValidationResult:
     try:
         tree=parser.parse(code.encode("utf-8"))
         root=tree.root_node
-        if not root.has_error(): return ValidationResult(True,True,language,(),"tree-sitter")
+        # py-tree-sitter compatibility: older releases exposed has_error as a
+        # callable, while current releases expose it as a boolean property.
+        has_error = getattr(root, "has_error", False)
+        if callable(has_error):
+            has_error = has_error()
+        if not has_error: return ValidationResult(True,True,language,(),"tree-sitter")
         return ValidationResult(False,True,language,(),"tree-sitter")
     except Exception as exc:
         return ValidationResult(False,True,language,(f"parser error: {exc}",),"tree-sitter")
