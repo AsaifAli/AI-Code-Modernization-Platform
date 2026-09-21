@@ -2,37 +2,33 @@
 
 ## Public topology
 
-Browser -> Streamlit UI -> FastAPI agent service -> Supabase Postgres + OpenRouter
+Browser → Streamlit UI → FastAPI agent service → LLM Gateway + Qdrant
 
-The local Docker Compose stack remains unchanged for full development, including LiteLLM, local Postgres, and optional vLLM.
+The public Render deployment does not require a persistent SQL database. The agent service treats database access as optional: when `DATABASE_URL` is not configured, database initialization is skipped and task status falls back to process-local memory.
 
-## Free-tier architecture decisions
+Runtime files and task state on the Render instance are disposable. Users should download migration artifacts during the active session.
 
-- Both Render services use the Free web-service tier.
-- The API uses Supabase Postgres instead of another Render Free Postgres database.
-- This avoids Render's one-Free-Postgres-per-workspace limitation and its 30-day Free Postgres lifetime.
-- Runtime artifacts are written to the container filesystem and are therefore disposable. The demo expects users to download results during the active session.
+The local Docker Compose stack remains available for full development and can continue using PostgreSQL for durable local testing.
 
 ## Required Render secrets
 
 Set these on `ai-code-modernization-api`:
 
-- `OPENAI_API_KEY` = OpenRouter API key
-- `DATABASE_URL` = Supabase Postgres connection string
+- `QDRANT_URL` = Qdrant endpoint
+- `QDRANT_API_KEY` = Qdrant API key
 
-Use Supabase's IPv4-compatible pooler/session connection string for persistent backend traffic when connecting from Render.
+The public service uses the shared Portfolio LLM Gateway. Do not configure `DATABASE_URL` for the Render demo.
 
-## Important
+Do not commit secrets to GitHub. Put them only in Render environment variables.
 
-Do not commit `DATABASE_URL` or `OPENAI_API_KEY` to GitHub. Put them only in Render environment variables.
+## Deployment verification
 
-## First deployment test
+1. API `/healthz` returns HTTP 200.
+2. API `/readyz` returns `status: ready`.
+3. UI loads and reports the API as connected.
+4. Upload a very small test repository.
+5. Run scan/plan first.
+6. Test a small migration.
+7. Download the generated artifact during the same session.
 
-1. API `/healthz`
-2. UI loads
-3. UI reports API connected
-4. Upload a very small test repository
-5. Run scan/plan first
-6. Only then test the full migration workflow
-
-The Free web services are suitable for portfolio/demo use, not production workloads.
+The Free web service is suitable for portfolio/demo use, not production workloads.

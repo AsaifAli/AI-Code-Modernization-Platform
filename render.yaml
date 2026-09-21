@@ -37,8 +37,6 @@ services:
         value: "qdrant/bm25"
       - key: QDRANT_DENSE_DIMENSIONS
         value: "384"
-      - key: DATABASE_URL
-        sync: false
       - key: ALLOWED_ORIGINS
         value: "https://ai-code-modernization-ui.onrender.com"
       - key: STACK_ANALYZER_ENABLED
