@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from gateway_handoff import GatewayHandoffError, _exchange_endpoint, exchange_handoff_code
+from streamlit_ui.gateway_handoff import GatewayHandoffError, _exchange_endpoint, exchange_handoff_code
 
 
 def test_exchange_endpoint_accepts_gateway_root_or_v1_url() -> None:
