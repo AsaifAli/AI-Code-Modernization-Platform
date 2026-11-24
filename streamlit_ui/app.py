@@ -13,6 +13,7 @@ import requests
 import streamlit as st
 
 from api_client import AgentServiceClient, ApiError, DEFAULT_BASE_URL
+from gateway_handoff import GatewayHandoffError, exchange_handoff_code
 from sidebar_toggle import render_sidebar_toggle
 
 # --------------------------------------------------------------------------
@@ -110,13 +111,71 @@ if "base_url" not in st.session_state:
 if "llm_gateway_session_token" not in st.session_state:
     st.session_state.llm_gateway_session_token = ""
 
-portfolio_token = str(st.query_params.get("portfolio_llm_session", "")).strip()
-if portfolio_token:
-    st.session_state.llm_gateway_session_token = portfolio_token
+_HANDOFF_PARAM = "portfolio_llm_handoff"
+_LEGACY_HANDOFF_PARAM = "portfolio_llm_session"
+
+
+def _clear_gateway_session() -> None:
+    st.session_state.llm_gateway_session_token = ""
+    st.session_state.pop("llm_gateway_session_expires_at", None)
+
+
+def _process_portfolio_gateway_handoff() -> None:
+    # Reusable JWTs in URLs are never accepted.
+    if _LEGACY_HANDOFF_PARAM in st.query_params:
+        _clear_gateway_session()
+        try:
+            del st.query_params[_LEGACY_HANDOFF_PARAM]
+        except Exception:
+            pass
+        st.session_state["gateway_handoff_error"] = (
+            "This older session link is no longer supported. Reopen LegacyLens from the website."
+        )
+        return
+
+    if _HANDOFF_PARAM not in st.query_params:
+        token = str(st.session_state.get("llm_gateway_session_token", "") or "")
+        try:
+            expiry = float(st.session_state.get("llm_gateway_session_expires_at", 0) or 0)
+        except (TypeError, ValueError, OverflowError):
+            expiry = 0
+        if token and expiry <= time.time():
+            _clear_gateway_session()
+            st.session_state["gateway_handoff_error"] = (
+                "Your LegacyLens AI session expired. Launch LegacyLens again from the website."
+            )
+        return
+
+    code = str(st.query_params.get(_HANDOFF_PARAM, "") or "").strip()
+    _clear_gateway_session()
     try:
-        del st.query_params["portfolio_llm_session"]
+        del st.query_params[_HANDOFF_PARAM]
     except Exception:
-        pass
+        st.session_state["gateway_handoff_error"] = (
+            "The launch code could not be removed from the URL. Return to the website and launch again."
+        )
+        return
+
+    if not code:
+        st.session_state["gateway_handoff_error"] = (
+            "The LegacyLens launch code is missing. Launch again from the website."
+        )
+        return
+
+    try:
+        exchanged = exchange_handoff_code(code)
+    except GatewayHandoffError as exc:
+        st.session_state["gateway_handoff_error"] = str(exc)
+        return
+
+    st.session_state.llm_gateway_session_token = exchanged["access_token"]
+    st.session_state.llm_gateway_session_expires_at = time.time() + exchanged["expires_in"]
+    st.session_state.pop("gateway_handoff_error", None)
+
+
+_process_portfolio_gateway_handoff()
+if st.session_state.get("gateway_handoff_error"):
+    st.warning(st.session_state["gateway_handoff_error"])
 if "token" not in st.session_state:
     st.session_state.token = "streamlit-user"
 if "active_task_id" not in st.session_state:
