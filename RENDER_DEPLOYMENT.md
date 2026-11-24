@@ -1,34 +1,44 @@
-# Render Free Deployment
+# LegacyLens deployment readiness
 
-## Public topology
+## Deployment topology
 
-Browser → Streamlit UI → FastAPI agent service → LLM Gateway + Qdrant
+The Render Blueprint defines two web services:
 
-The public Render deployment does not require a persistent SQL database. The agent service treats database access as optional: when `DATABASE_URL` is not configured, database initialization is skipped and task status falls back to process-local memory.
+- `ai-code-modernization-api` — FastAPI migration/agent service.
+- `ai-code-modernization-ui` — Streamlit developer workbench.
 
-Runtime files and task state on the Render instance are disposable. Users should download migration artifacts during the active session.
+The public demo uses the shared Portfolio LLM Gateway and Qdrant. The Render manifest does not provision a Qdrant cluster, so its endpoint and credentials must be supplied separately.
 
-The local Docker Compose stack remains available for full development and can continue using PostgreSQL for durable local testing.
+## Current service state
 
-## Required Render secrets
+A live check of the previously used Render API and UI hostnames returned Render's **"This service has been suspended by its owner"** response. The source code and deployment manifest remain in the repository, but the hosted application is not currently available at those hostnames. Re-enable or recreate the Render services and confirm their generated URLs before presenting LegacyLens as a live hosted demo.
 
-Set these on `ai-code-modernization-api`:
+## Required external configuration
 
-- `QDRANT_URL` = Qdrant endpoint
-- `QDRANT_API_KEY` = Qdrant API key
+On the API service, configure:
 
-The public service uses the shared Portfolio LLM Gateway. Do not configure `DATABASE_URL` for the Render demo.
+- `QDRANT_URL`
+- `QDRANT_API_KEY`
+- Shared Gateway connectivity as defined in `render.yaml`
+- Correct `ALLOWED_ORIGINS` matching the deployed UI URL
 
-Do not commit secrets to GitHub. Put them only in Render environment variables.
+The UI receives `AGENT_SERVICE_URL` from the API service reference in the Blueprint. The website-launched one-time BYOK handoff also requires `PORTFOLIO_SESSION_GATEWAY_URL` on the UI service and a valid Gateway session contract.
 
-## Deployment verification
+Do not configure a persistent SQL database for the lightweight Render demo topology unless the deployment design is deliberately changed. Task state may be process-local and disposable when `DATABASE_URL` is absent.
 
-1. API `/healthz` returns HTTP 200.
-2. API `/readyz` returns `status: ready`.
-3. UI loads and reports the API as connected.
-4. Upload a very small test repository.
-5. Run scan/plan first.
-6. Test a small migration.
-7. Download the generated artifact during the same session.
+## Re-enable and verify
 
-The Free web service is suitable for portfolio/demo use, not production workloads.
+After reactivating the two services:
+
+1. Confirm the API `/healthz` endpoint returns HTTP 200.
+2. Confirm API `/readyz` returns `status: ready`.
+3. Confirm the UI `/_stcore/health` route responds and the UI can reach the API.
+4. Upload a small synthetic repository.
+5. Run scan and migration planning.
+6. Run a small migration and inspect syntax/QA gates.
+7. Download the artifact during the active session.
+8. Launch from the studio website and verify one-time Gateway handoff.
+
+## Demo limitations
+
+The Render demo is suitable for portfolio demonstrations, not production migration workloads. Without persistent database configuration, task state and runtime files are disposable. Download generated artifacts during the active session. Semantic equivalence of migrated code still requires human review and project-specific validation.
