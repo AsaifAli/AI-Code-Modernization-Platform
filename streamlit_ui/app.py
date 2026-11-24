@@ -14,6 +14,12 @@ import streamlit as st
 
 from api_client import AgentServiceClient, ApiError, DEFAULT_BASE_URL
 from gateway_handoff import GatewayHandoffError, exchange_handoff_code
+import sys
+from pathlib import Path as _Path
+
+# The UI runs from streamlit_ui/ in its container, but repository-root test
+# and local launchers may import this module with the project root on sys.path.
+
 from sidebar_toggle import render_sidebar_toggle
 
 # --------------------------------------------------------------------------
