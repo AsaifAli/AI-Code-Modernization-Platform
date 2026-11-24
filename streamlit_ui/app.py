@@ -110,6 +110,8 @@ if "base_url" not in st.session_state:
     st.session_state.base_url = DEFAULT_BASE_URL
 if "llm_gateway_session_token" not in st.session_state:
     st.session_state.llm_gateway_session_token = ""
+if "llm_gateway_session_expires_at" not in st.session_state:
+    st.session_state.llm_gateway_session_expires_at = 0
 
 _HANDOFF_PARAM = "portfolio_llm_handoff"
 _LEGACY_HANDOFF_PARAM = "portfolio_llm_session"
