@@ -126,14 +126,13 @@ def _clear_gateway_session() -> None:
 def _process_portfolio_gateway_handoff() -> None:
     # Reusable JWTs in URLs are never accepted.
     if _LEGACY_HANDOFF_PARAM in st.query_params:
+        # Silently discard deprecated credentials; never accept a JWT from a URL.
         _clear_gateway_session()
         try:
             del st.query_params[_LEGACY_HANDOFF_PARAM]
         except Exception:
             pass
-        st.session_state["gateway_handoff_error"] = (
-            "This older session link is no longer supported. Reopen LegacyLens from the website."
-        )
+        st.session_state.pop("gateway_handoff_error", None)
         return
 
     if _HANDOFF_PARAM not in st.query_params:
