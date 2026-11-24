@@ -136,3 +136,17 @@ LegacyLens is a portfolio and engineering demonstration, not a turnkey enterpris
 ## Portfolio positioning
 
 **Developer modernization workbench** — program analysis, migration planning, context-grounded conversion, syntax-aware validation, bounded repair, executable checks, and release-aware migration workflows.
+
+## Website demo launch and Gateway session contract
+
+The hosted portfolio launch uses the shared Portfolio LLM Gateway. The website remains the sole provider-credential owner and issues a short-lived, project-scoped Gateway JWT. The LegacyLens Streamlit application receives a one-time launch code, removes `portfolio_llm_handoff` from the browser URL, exchanges it server-side at the Gateway, and keeps the resulting bearer only in Streamlit server-side session state.
+
+The agent-service API receives that bearer only in the `X-LLM-Gateway-Token` request header. The request-scoped `ContextVar` carries it into the migration workflow and the Gateway-aware Agno model client. The deprecated reusable `portfolio_llm_session` URL token is rejected.
+
+For the hosted portfolio deployment, configure:
+
+- `PORTFOLIO_SESSION_GATEWAY_URL`: shared Gateway root used for single-use code exchange.
+- `LLM_GATEWAY_URL`: OpenAI-compatible Gateway inference base URL, ending in `/v1`.
+- Website project slug: `legacylens`.
+
+Do not pass reusable JWTs in query parameters, store them in browser local storage, or place end-user provider API keys in LegacyLens environment variables for the hosted portfolio path. Local-development provider adapters remain available only where already supported by existing code and explicit local configuration.
