@@ -139,13 +139,14 @@ LegacyLens is a portfolio and engineering demonstration, not a turnkey enterpris
 
 ## Website demo launch and Gateway session contract
 
-The hosted portfolio launch uses the shared Portfolio LLM Gateway. The website remains the sole provider-credential owner and issues a short-lived, project-scoped Gateway JWT. LegacyLens accepts that JWT only in the `X-LLM-Gateway-Token` request header and binds it to the migration workflow's request context. The agent-service model adapter consumes that request-scoped context; it must not fall back to end-user provider keys in the hosted portfolio path.
+The hosted portfolio launch uses the shared Portfolio LLM Gateway. The website remains the sole provider-credential owner and issues a short-lived, project-scoped Gateway JWT. The LegacyLens Streamlit application receives a one-time launch code, removes `portfolio_llm_handoff` from the browser URL, exchanges it server-side at the Gateway, and keeps the resulting bearer only in Streamlit server-side session state.
+
+The agent-service API receives that bearer only in the `X-LLM-Gateway-Token` request header. The request-scoped `ContextVar` carries it into the migration workflow and the Gateway-aware Agno model client. The deprecated reusable `portfolio_llm_session` URL token is rejected.
 
 For the hosted portfolio deployment, configure:
 
-- `LLM_GATEWAY_URL`: OpenAI-compatible Gateway base URL, ending in `/v1`.
+- `PORTFOLIO_SESSION_GATEWAY_URL`: shared Gateway root used for single-use code exchange.
+- `LLM_GATEWAY_URL`: OpenAI-compatible Gateway inference base URL, ending in `/v1`.
 - Website project slug: `legacylens`.
-- Website integration: retain the current authenticated launch session and pass the short-lived JWT in `X-LLM-Gateway-Token` only.
 
-Do not pass reusable JWTs in query parameters, store them in browser local storage, or place provider API keys in LegacyLens environment variables for the portfolio demo path. Local-development provider adapters remain available only where already supported by the existing code and explicit local configuration.
-
+Do not pass reusable JWTs in query parameters, store them in browser local storage, or place end-user provider API keys in LegacyLens environment variables for the hosted portfolio path. Local-development provider adapters remain available only where already supported by existing code and explicit local configuration.
